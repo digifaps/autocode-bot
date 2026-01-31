@@ -20,6 +20,7 @@ setup(
     entry_points={
         "console_scripts": [
             "motor_driver_node = motor_driver.motor_driver_node:main",
+            "imu_node = motor_driver.imu_node:main",
         ],
     },
 )
