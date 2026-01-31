@@ -1,0 +1,114 @@
+---
+description: Autonomous robot project context - hardware specs, architecture, and development guidelines
+alwaysApply: true
+---
+
+# Robot Project Context
+
+Building an autonomous wheeled robot with stereo vision running ROS2 on NVIDIA Jetson Xavier NX.
+
+## Hardware
+
+### Compute
+- **Jetson Xavier NX:** JetPack 5.1.3, Ubuntu 20.04, ROS2 Humble
+- 384-core Volta GPU, 6-core ARM CPU, 8GB RAM
+- Power modes: 10W, 15W, 20W
+
+### Vision
+- **Waveshare IMX219-83 Stereo Camera:** Dual 8MP sensors, 60mm baseline, 83° FOV
+- Built-in ICM20948 IMU (9-DOF)
+- Dual CSI connection, software sync
+
+### Motors
+- **2x Hoverboard BLDC Motors:** 350W @ 36V, built-in Hall sensors
+- **2x RioRand 350W Controllers:** PWM/DIR/BRAKE pins, SC speed pulse feedback
+- Config: Potentiometer fully CCW, jumper shorted for PWM mode
+
+### Power
+- 2x 36V/4.4Ah hoverboard batteries in parallel (316Wh total)
+- Buck converter 36V → 12V for Jetson
+- Runtime: 80-160 minutes
+
+### Drive
+- Differential drive (2-wheel, tank steering)
+- Odometry from speed pulses + IMU fusion
+
+## Software Architecture
+
+### ROS2 Topics
+- `/cmd_vel` - Velocity commands (Twist)
+- `/odom` - Odometry from motors + IMU
+- `/camera/left/image_raw`, `/camera/right/image_raw` - Stereo images
+- `/camera/depth` - Depth map
+- `/camera/points` - Point cloud
+- `/imu/data` - IMU data
+- `/scan` - Virtual laser scan
+- `/map` - SLAM map
+
+### Repository Structure
+```
+robot_ws/
+├── src/
+│   ├── robot_bringup/     # Launch files
+│   ├── motor_driver/      # Custom motor controller node
+│   ├── stereo_vision/     # Camera + depth processing
+│   └── robot_description/ # URDF, meshes
+├── config/
+├── docs/
+└── README.md
+```
+
+## Development Milestones
+
+### Phase 1: Foundation & Perception
+1.1 ROS2 Environment Setup
+1.2 Stereo Camera Integration
+1.3 Depth Perception (CUDA stereo matching)
+
+### Phase 2: Navigation & Control
+2.1 Motor Control Interface (custom driver node with PID)
+2.2 SLAM
+2.3 Path Planning (Nav2)
+
+### Phase 3: Intelligence
+3.1 Object Detection (YOLOv8 + TensorRT)
+3.2 Behavior/Mission Planning
+
+## GPIO Pin Assignments
+
+Motor control pins (to be finalized):
+- PWM_LEFT, DIR_LEFT, BRAKE_LEFT, SPEED_LEFT
+- PWM_RIGHT, DIR_RIGHT, BRAKE_RIGHT, SPEED_RIGHT
+- CSI-0: Left camera, CSI-1: Right camera
+- I2C: IMU
+
+## Key Algorithms
+
+### Differential Drive Kinematics
+```python
+left_vel = linear - (angular * wheel_separation / 2)
+right_vel = linear + (angular * wheel_separation / 2)
+```
+
+### Speed Pulse → RPM
+```python
+rpm = (pulse_count / pulses_per_rev) * (60 / sample_period)
+```
+
+## Performance Targets
+- Camera/depth: >15 FPS
+- Detection: >15 FPS
+- Latency: <100ms
+- Speed: 1-2 m/s
+- Runtime: 90+ minutes
+
+## Development Environment
+- **Host:** Ubuntu 20.04, Cursor IDE, Git, NVIDIA SDK Manager
+- **Jetson:** JetPack 5.1.3, ROS2 Humble, CUDA 11.4+, TensorRT 8.5+
+- **Connection:** SSH (primary), Serial (backup)
+
+## References
+- Jetson: https://developer.nvidia.com/embedded/jetson-xavier-nx
+- RioRand: https://mad-ee.com/easy-inexpensive-hoverboard-motor-controller/
+- ROS2 Humble: https://docs.ros.org/en/humble/
+- Nav2: https://navigation.ros.org/
