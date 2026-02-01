@@ -12,6 +12,7 @@ This project implements an autonomous differential-drive robot running ROS2 on N
 
 - **Compute:** NVIDIA Jetson Xavier NX (JetPack 5.1.3)
 - **Vision:** Waveshare IMX219-83 stereo camera + ICM20948 IMU
+- **LiDAR:** Waveshare D500 (LDROBOT LD19 compatible, 360° 2D)
 - **Motors:** 2x hoverboard BLDC motors with RioRand 350W controllers
 - **Power:** 36V battery system (2x hoverboard packs in parallel)
 - **Drivetrain:** Differential drive
@@ -69,6 +70,20 @@ python3 -m http.server 8080 &
 
 Then open in your browser: **http://<JETSON_IP>:8080/web_viewer.html**
 
+### 3. Start LiDAR (Waveshare D500)
+
+Connect the D500 via USB-to-UART. Then:
+
+```bash
+# Set serial port permissions (adjust /dev/ttyUSB0 if needed)
+sudo chmod 666 /dev/ttyUSB0
+
+# Launch D500 LiDAR (publishes /scan)
+ros2 launch robot_bringup d500_lidar.launch.py port_name:=/dev/ttyUSB0
+```
+
+See [docs/hardware/d500_lidar.md](docs/hardware/d500_lidar.md) for wiring and troubleshooting.
+
 ### Services Overview
 
 | Service | Port | Description |
@@ -98,6 +113,16 @@ You can also connect Foxglove Studio for advanced visualization:
 1. Open Foxglove Studio
 2. Select "Rosbridge (WebSocket)"
 3. Connect to: `ws://<JETSON_IP>:9090`
+
+## LiDAR (Waveshare D500)
+
+The D500 is a 360° 2D LiDAR (LDROBOT LD19 compatible) that publishes `sensor_msgs/LaserScan` on `/scan`. It is used for 2D SLAM and Nav2 obstacle avoidance.
+
+- **Topic:** `/scan` (`sensor_msgs/msg/LaserScan`)
+- **TF frame:** `base_laser` (static transform from `base_link`)
+- **Driver:** [ldlidar_stl_ros2](https://github.com/ldrobotSensorTeam/ldlidar_stl_ros2) (clone into `ros2_ws/src` and build)
+
+Full setup, wiring, and troubleshooting: [docs/hardware/d500_lidar.md](docs/hardware/d500_lidar.md).
 
 ## Development Phases
 
@@ -145,6 +170,13 @@ source ~/ros2_ws/install/setup.bash
 ```bash
 pkill -f video_server
 pkill -f combined_server
+```
+
+### LiDAR not publishing
+```bash
+ls -l /dev/ttyUSB*   # Check device exists
+sudo chmod 666 /dev/ttyUSB0
+ros2 launch robot_bringup d500_lidar.launch.py port_name:=/dev/ttyUSB0
 ```
 
 ## License
