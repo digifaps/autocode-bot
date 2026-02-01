@@ -72,17 +72,23 @@ Then open in your browser: **http://<JETSON_IP>:8080/web_viewer.html**
 
 ### 3. Start LiDAR (Waveshare D500)
 
-Connect the D500 via USB-to-UART. Then:
+**Onboard UART (default):** Connect D500 to Jetson 40-pin (Pin 8=TX, 10=RX, GND). Default port is `/dev/ttyTHS1`.
 
 ```bash
-# Set serial port permissions (adjust /dev/ttyUSB0 if needed)
-sudo chmod 666 /dev/ttyUSB0
-
 # Launch D500 LiDAR (publishes /scan)
-ros2 launch robot_bringup d500_lidar.launch.py port_name:=/dev/ttyUSB0
+ros2 launch robot_bringup d500_lidar.launch.py
 ```
 
-See [docs/hardware/d500_lidar.md](docs/hardware/d500_lidar.md) for wiring and troubleshooting.
+**Optional power control (GPIO):** Switch LiDAR 5 V on/off via a GPIO pin (e.g. BOARD 12, with MOSFET):
+
+```bash
+ros2 launch robot_bringup d500_lidar.launch.py use_lidar_power:=true power_enable_gpio_pin:=12
+# Then: ros2 service call /lidar/set_power std_srvs/srv/SetBool "{data: true/false}"
+```
+
+**USB adapter:** Use `port_name:=/dev/ttyUSB0` and set permissions (`sudo chmod 666 /dev/ttyUSB0`).
+
+See [docs/hardware/d500_lidar.md](docs/hardware/d500_lidar.md) for wiring, scan-speed notes, and troubleshooting.
 
 ### Services Overview
 
@@ -120,6 +126,9 @@ The D500 is a 360° 2D LiDAR (LDROBOT LD19 compatible) that publishes `sensor_ms
 
 - **Topic:** `/scan` (`sensor_msgs/msg/LaserScan`)
 - **TF frame:** `base_laser` (static transform from `base_link`)
+- **Connection:** Onboard UART `/dev/ttyTHS1` (40-pin: 8=TX, 10=RX) or USB-to-UART
+- **Power control:** Optional GPIO via `lidar_control` package; service `lidar/set_power` (SetBool)
+- **Scan speed:** Parameter in `lidar_control_node`; runtime change may require driver/protocol support
 - **Driver:** [ldlidar_stl_ros2](https://github.com/ldrobotSensorTeam/ldlidar_stl_ros2) (clone into `ros2_ws/src` and build)
 
 Full setup, wiring, and troubleshooting: [docs/hardware/d500_lidar.md](docs/hardware/d500_lidar.md).
