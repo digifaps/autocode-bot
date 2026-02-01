@@ -28,7 +28,7 @@ class ImuNode(Node):
         self.declare_parameter("i2c_addr", 0x68)
         self.declare_parameter("publish_rate", 100.0)
         self.declare_parameter("frame_id", "imu_link")
-        self.declare_parameter("lowpass_alpha", 0.2)  # 0=no filter, 1=no smoothing; 0.1--0.3 typical
+        self.declare_parameter("lowpass_alpha", 0.08)  # 0=no filter, 1=raw; smaller=more smoothing (0.05--0.15 typical)
         
         i2c_bus = self.get_parameter("i2c_bus").value
         i2c_addr = self.get_parameter("i2c_addr").value

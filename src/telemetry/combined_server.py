@@ -15,7 +15,7 @@ def get_imu_data():
     global imu_counter
     imu_counter += 1
     now = time.time()
-    # Small random noise only (no sin/cos), so demo doesn't oscillate
+    # Very small random noise (heavily filtered look) so demo stays steady
     r = lambda scale: (random.random() - 0.5) * scale
     return {
         'header': {
@@ -26,11 +26,11 @@ def get_imu_data():
         'orientation': {'x': 0.0, 'y': 0.0, 'z': 0.0, 'w': 1.0},
         'orientation_covariance': [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         'angular_velocity': {
-            'x': r(0.02), 'y': r(0.02), 'z': r(0.02)
+            'x': r(0.005), 'y': r(0.005), 'z': r(0.005)
         },
         'angular_velocity_covariance': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         'linear_acceleration': {
-            'x': r(0.1), 'y': r(0.1), 'z': 9.81 + r(0.05)
+            'x': r(0.02), 'y': r(0.02), 'z': 9.81 + r(0.01)
         },
         'linear_acceleration_covariance': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     }
