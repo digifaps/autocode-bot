@@ -28,11 +28,14 @@ class ImuNode(Node):
         self.declare_parameter("i2c_addr", 0x68)
         self.declare_parameter("publish_rate", 100.0)
         self.declare_parameter("frame_id", "imu_link")
+        self.declare_parameter("lowpass_alpha", 0.2)  # 0=no filter, 1=no smoothing; 0.1--0.3 typical
         
         i2c_bus = self.get_parameter("i2c_bus").value
         i2c_addr = self.get_parameter("i2c_addr").value
         self.publish_rate = self.get_parameter("publish_rate").value
         self.frame_id = self.get_parameter("frame_id").value
+        self.lowpass_alpha = self.get_parameter("lowpass_alpha").value
+        self._filtered = None  # (ax, ay, az, gx, gy, gz) for exponential moving average
         
         # Initialize IMU
         try:
@@ -57,6 +60,22 @@ class ImuNode(Node):
         try:
             # Read accelerometer and gyroscope
             ax, ay, az, gx, gy, gz = self.imu.read_accelerometer_gyro_data()
+            
+            # Optional low-pass filter to reduce oscillation/noise
+            a = self.lowpass_alpha
+            if self._filtered is None:
+                self._filtered = (ax, ay, az, gx, gy, gz)
+            else:
+                fax, fay, faz, fgx, fgy, fgz = self._filtered
+                self._filtered = (
+                    a * ax + (1 - a) * fax,
+                    a * ay + (1 - a) * fay,
+                    a * az + (1 - a) * faz,
+                    a * gx + (1 - a) * fgx,
+                    a * gy + (1 - a) * fgy,
+                    a * gz + (1 - a) * fgz,
+                )
+            ax, ay, az, gx, gy, gz = self._filtered
             
             # Read magnetometer
             mx, my, mz = self.imu.read_magnetometer_data()

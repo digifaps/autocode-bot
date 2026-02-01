@@ -3,17 +3,20 @@
 
 import asyncio
 import json
-import websockets
 import math
+import random
 import time
+import websockets
 
 imu_counter = 0
 
 def get_imu_data():
+    """Fake IMU: steady gravity + small noise (no intentional oscillation)."""
     global imu_counter
     imu_counter += 1
-    t = imu_counter * 0.1
     now = time.time()
+    # Small random noise only (no sin/cos), so demo doesn't oscillate
+    r = lambda scale: (random.random() - 0.5) * scale
     return {
         'header': {
             'seq': imu_counter,
@@ -23,15 +26,11 @@ def get_imu_data():
         'orientation': {'x': 0.0, 'y': 0.0, 'z': 0.0, 'w': 1.0},
         'orientation_covariance': [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         'angular_velocity': {
-            'x': math.sin(t * 2) * 0.1,
-            'y': math.cos(t * 2) * 0.1,
-            'z': math.sin(t * 3) * 0.05
+            'x': r(0.02), 'y': r(0.02), 'z': r(0.02)
         },
         'angular_velocity_covariance': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         'linear_acceleration': {
-            'x': math.sin(t) * 2.0,
-            'y': math.cos(t) * 2.0,
-            'z': 9.81 + math.sin(t * 0.5) * 0.5
+            'x': r(0.1), 'y': r(0.1), 'z': 9.81 + r(0.05)
         },
         'linear_acceleration_covariance': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     }
