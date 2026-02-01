@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ROS2 Telemetry</title>
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #1a1a2e; 
+            color: #eee; 
+            padding: 20px;
+            margin: 0;
+        }
+        h1 { color: #00d4ff; margin-bottom: 5px; }
+        .status { 
+            padding: 8px 15px; 
+            border-radius: 20px; 
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+        .connected { background: #00c853; color: #000; }
+        .disconnected { background: #ff5252; }
+        .card {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 10px 0;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .card h2 { margin-top: 0; color: #00d4ff; font-size: 18px; }
+        .value {
+            font-size: 28px;
+            font-weight: bold;
+            font-family: monospace;
+        }
+        .label { color: #888; font-size: 14px; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .axis { text-align: center; }
+        .x { color: #ff6b6b; }
+        .y { color: #51cf66; }
+        .z { color: #339af0; }
+        .video-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .video-card {
+            background: #16213e;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .video-card h3 {
+            margin: 0;
+            padding: 10px;
+            background: #0f3460;
+            color: #00d4ff;
+            font-size: 14px;
+        }
+        .video-card img {
+            width: 100%;
+            display: block;
+        }
+        .sensor-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>ROS2 Robot Telemetry</h1>
+    <div id=status class=status disconnected>Disconnected</div>
+    
+    <div class=video-container>
+        <div class=video-card>
+            <h3>Left Camera</h3>
+            <img id=left-cam src=http://192.168.8.171:8081/left alt=Left Camera>
+        </div>
+        <div class=video-card>
+            <h3>Right Camera</h3>
+            <img id=right-cam src=http://192.168.8.171:8081/right alt=Right Camera>
+        </div>
+    </div>
+    
+    <div class=sensor-row>
+        <div class=card>
+            <h2>Linear Acceleration (m/s2)</h2>
+            <div class=grid>
+                <div class=axis><div class=label>X</div><div class=value x id=ax>--</div></div>
+                <div class=axis><div class=label>Y</div><div class=value y id=ay>--</div></div>
+                <div class=axis><div class=label>Z</div><div class=value z id=az>--</div></div>
+            </div>
+        </div>
+        <div class=card>
+            <h2>Angular Velocity (rad/s)</h2>
+            <div class=grid>
+                <div class=axis><div class=label>X</div><div class=value x id=gx>--</div></div>
+                <div class=axis><div class=label>Y</div><div class=value y id=gy>--</div></div>
+                <div class=axis><div class=label>Z</div><div class=value z id=gz>--</div></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ws = new WebSocket('ws://192.168.8.171:9090');
+        const status = document.getElementById('status');
+        
+        ws.onopen = () => {
+            status.textContent = 'Connected';
+            status.className = 'status connected';
+            ws.send(JSON.stringify({op: 'subscribe', topic: '/imu/data_raw'}));
+        };
+        
+        ws.onclose = () => {
+            status.textContent = 'Disconnected';
+            status.className = 'status disconnected';
+        };
+        
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.op === 'publish' && data.msg) {
+                const msg = data.msg;
+                if (msg.linear_acceleration) {
+                    document.getElementById('ax').textContent = msg.linear_acceleration.x.toFixed(2);
+                    document.getElementById('ay').textContent = msg.linear_acceleration.y.toFixed(2);
+                    document.getElementById('az').textContent = msg.linear_acceleration.z.toFixed(2);
+                }
+                if (msg.angular_velocity) {
+                    document.getElementById('gx').textContent = msg.angular_velocity.x.toFixed(3);
+                    document.getElementById('gy').textContent = msg.angular_velocity.y.toFixed(3);
+                    document.getElementById('gz').textContent = msg.angular_velocity.z.toFixed(3);
+                }
+            }
+        };
+    </script>
+</body>
+</html>
