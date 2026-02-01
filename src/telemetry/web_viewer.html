@@ -185,14 +185,18 @@
                 if (isScan) {
                     lidarStatus.textContent = '/scan – ' + (msg.ranges || msg.ranges_0 || []).length + ' points';
                     drawLidar(msg);
-                } else if (msg.linear_acceleration) {
-                    document.getElementById('ax').textContent = msg.linear_acceleration.x.toFixed(2);
-                    document.getElementById('ay').textContent = msg.linear_acceleration.y.toFixed(2);
-                    document.getElementById('az').textContent = msg.linear_acceleration.z.toFixed(2);
-                } else if (msg.angular_velocity) {
-                    document.getElementById('gx').textContent = msg.angular_velocity.x.toFixed(3);
-                    document.getElementById('gy').textContent = msg.angular_velocity.y.toFixed(3);
-                    document.getElementById('gz').textContent = msg.angular_velocity.z.toFixed(3);
+                } else {
+                    // IMU: update both accel and gyro when present (same message can have both)
+                    if (msg.linear_acceleration != null) {
+                        document.getElementById('ax').textContent = Number(msg.linear_acceleration.x).toFixed(2);
+                        document.getElementById('ay').textContent = Number(msg.linear_acceleration.y).toFixed(2);
+                        document.getElementById('az').textContent = Number(msg.linear_acceleration.z).toFixed(2);
+                    }
+                    if (msg.angular_velocity != null) {
+                        document.getElementById('gx').textContent = Number(msg.angular_velocity.x).toFixed(3);
+                        document.getElementById('gy').textContent = Number(msg.angular_velocity.y).toFixed(3);
+                        document.getElementById('gz').textContent = Number(msg.angular_velocity.z).toFixed(3);
+                    }
                 }
             }
         };
