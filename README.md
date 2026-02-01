@@ -103,8 +103,11 @@ See [docs/hardware/d500_lidar.md](docs/hardware/d500_lidar.md) for wiring, scan-
 The web-based telemetry dashboard displays:
 
 - **Stereo Camera Feeds** - Live left/right camera streams via MJPEG
+- **LiDAR Range Map** - Top-down 2D view of `/scan` (LaserScan); robot at center, range rings every 2 m
 - **IMU Data** - Real-time linear acceleration and angular velocity
 - **Connection Status** - WebSocket connection indicator
+
+With the default `combined_server.py` you get a **fake** `/scan` for demo. For **real** LiDAR, run [rosbridge_suite](https://github.com/RobotWebTools/rosbridge_suite) (ROS2) on port 9090 instead; the same page will show live `/scan` and `/imu/data_raw` from ROS2.
 
 ### Accessing from External Devices
 

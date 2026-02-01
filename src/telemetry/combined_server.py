@@ -36,6 +36,32 @@ def get_imu_data():
         'linear_acceleration_covariance': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     }
 
+
+def get_fake_scan():
+    """Fake LaserScan for demo when no real /scan is available (e.g. mock server)."""
+    n = 360
+    angle_min = -math.pi
+    angle_max = math.pi
+    angle_increment = (angle_max - angle_min) / n
+    t = time.time()
+    ranges = []
+    for i in range(n):
+        angle = angle_min + i * angle_increment
+        # Fake "room": walls at ~3–5 m with a gap, plus some noise
+        base = 4.0 + 0.5 * math.sin(angle * 2) + 0.3 * math.sin(t + angle * 3)
+        r = base + (0.2 * (hash(str(i) + str(int(t))) % 100) / 100.0)
+        ranges.append(round(r, 3))
+    return {
+        'header': {'stamp': {'secs': int(t), 'nsecs': int((t % 1) * 1e9)}, 'frame_id': 'base_laser'},
+        'angle_min': angle_min,
+        'angle_max': angle_max,
+        'angle_increment': angle_increment,
+        'range_min': 0.1,
+        'range_max': 12.0,
+        'ranges': ranges,
+        'intensities': [],
+    }
+
 # ROS1-style message definitions
 IMU_TYPEDEF = '''std_msgs/Header header
 geometry_msgs/Quaternion orientation
@@ -66,11 +92,18 @@ async def handler(websocket):
     stream_task = None
     
     async def stream_data():
-        print('[STREAM] Starting')
+        print('[STREAM] Starting (IMU + fake /scan)')
         try:
+            scan_interval = 0
             while True:
                 msg = {'op': 'publish', 'topic': '/imu/data_raw', 'msg': get_imu_data()}
                 await websocket.send(json.dumps(msg))
+                scan_interval += 1
+                if scan_interval >= 2:  # ~5 Hz fake /scan
+                    scan_interval = 0
+                    await websocket.send(json.dumps({
+                        'op': 'publish', 'topic': '/scan', 'msg': get_fake_scan()
+                    }))
                 await asyncio.sleep(0.1)
         except Exception as e:
             print(f'[STREAM] Stopped: {e}')

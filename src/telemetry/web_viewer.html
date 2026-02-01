@@ -65,6 +65,15 @@
             grid-template-columns: 1fr 1fr;
             gap: 10px;
         }
+        .lidar-card {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 10px 0;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .lidar-card h2 { margin-top: 0; color: #00d4ff; font-size: 18px; }
+        #lidar-canvas { background: #0d1b2a; border-radius: 6px; }
     </style>
 </head>
 <body>
@@ -78,8 +87,14 @@
         </div>
         <div class=video-card>
             <h3>Right Camera</h3>
-            <img id=right-cam src=http://192.168.8.171:8081/right alt=Right Camera>
+            <img id=right-cam src="" alt=Right Camera>
         </div>
+    </div>
+    
+    <div class=lidar-card>
+        <h2>LiDAR range map</h2>
+        <canvas id=lidar-canvas width=400 height=400></canvas>
+        <div class=label id=lidar-status>Waiting for /scan...</div>
     </div>
     
     <div class=sensor-row>
@@ -102,30 +117,79 @@
     </div>
 
     <script>
-        const ws = new WebSocket('ws://192.168.8.171:9090');
+        const host = location.hostname;
+        document.getElementById('left-cam').src = 'http://' + host + ':8081/left';
+        document.getElementById('right-cam').src = 'http://' + host + ':8081/right';
+
+        const ws = new WebSocket('ws://' + host + ':9090');
         const status = document.getElementById('status');
-        
+        const lidarStatus = document.getElementById('lidar-status');
+
+        const canvas = document.getElementById('lidar-canvas');
+        const ctx = canvas.getContext('2d');
+        const lidarCx = canvas.width / 2;
+        const lidarCy = canvas.height / 2;
+        const lidarScale = Math.min(lidarCx, lidarCy) / 12; // 12 m max range default
+
+        function drawLidar(msg) {
+            const ranges = msg.ranges || msg.ranges_0 || [];
+            const angleMin = msg.angle_min != null ? msg.angle_min : -Math.PI;
+            const angleInc = msg.angle_increment != null ? msg.angle_increment : (2 * Math.PI / Math.max(1, ranges.length));
+            const rangeMin = msg.range_min != null ? msg.range_min : 0;
+            const rangeMax = msg.range_max != null ? msg.range_max : 12;
+
+            ctx.fillStyle = '#0d1b2a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.strokeStyle = 'rgba(0, 212, 255, 0.3)';
+            ctx.lineWidth = 1;
+            for (let r = 2; r <= 12; r += 2) {
+                ctx.beginPath();
+                ctx.arc(lidarCx, lidarCy, r * lidarScale, 0, 2 * Math.PI);
+                ctx.stroke();
+            }
+
+            ctx.fillStyle = '#00d4ff';
+            for (let i = 0; i < ranges.length; i++) {
+                const range = Number(ranges[i]);
+                if (range < rangeMin || range > rangeMax || !Number.isFinite(range)) continue;
+                const angle = angleMin + i * angleInc;
+                const x = lidarCx + range * Math.cos(angle) * lidarScale;
+                const y = lidarCy - range * Math.sin(angle) * lidarScale;
+                ctx.fillRect(x - 1, y - 1, 2, 2);
+            }
+
+            ctx.fillStyle = '#ff6b6b';
+            ctx.beginPath();
+            ctx.arc(lidarCx, lidarCy, 4, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+
         ws.onopen = () => {
             status.textContent = 'Connected';
             status.className = 'status connected';
-            ws.send(JSON.stringify({op: 'subscribe', topic: '/imu/data_raw'}));
+            ws.send(JSON.stringify({ op: 'subscribe', topic: '/imu/data_raw' }));
+            ws.send(JSON.stringify({ op: 'subscribe', topic: '/scan' }));
         };
-        
+
         ws.onclose = () => {
             status.textContent = 'Disconnected';
             status.className = 'status disconnected';
         };
-        
+
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
             if (data.op === 'publish' && data.msg) {
                 const msg = data.msg;
-                if (msg.linear_acceleration) {
+                const isScan = data.topic === '/scan' || (msg.ranges && msg.angle_min != null);
+                if (isScan) {
+                    lidarStatus.textContent = '/scan – ' + (msg.ranges || msg.ranges_0 || []).length + ' points';
+                    drawLidar(msg);
+                } else if (msg.linear_acceleration) {
                     document.getElementById('ax').textContent = msg.linear_acceleration.x.toFixed(2);
                     document.getElementById('ay').textContent = msg.linear_acceleration.y.toFixed(2);
                     document.getElementById('az').textContent = msg.linear_acceleration.z.toFixed(2);
-                }
-                if (msg.angular_velocity) {
+                } else if (msg.angular_velocity) {
                     document.getElementById('gx').textContent = msg.angular_velocity.x.toFixed(3);
                     document.getElementById('gy').textContent = msg.angular_velocity.y.toFixed(3);
                     document.getElementById('gz').textContent = msg.angular_velocity.z.toFixed(3);
