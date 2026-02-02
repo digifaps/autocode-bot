@@ -86,7 +86,7 @@ ros2 launch robot_bringup d500_lidar.launch.py use_lidar_power:=true power_enabl
 # Then: ros2 service call /lidar/set_power std_srvs/srv/SetBool "{data: true/false}"
 ```
 
-**USB adapter:** Use `port_name:=/dev/ttyUSB0` and set permissions (`sudo chmod 666 /dev/ttyUSB0`).
+**USB adapter:** Use `use_usb:=true` (default `/dev/ttyUSB0`) or `port_name:=/dev/ttyUSB0`. Set permissions: `sudo chmod 666 /dev/ttyUSB0`.
 
 See [docs/hardware/d500_lidar.md](docs/hardware/d500_lidar.md) for wiring, scan-speed notes, and troubleshooting.
 
@@ -114,6 +114,15 @@ With the default `combined_server.py` you get a **fake** `/scan` for demo. For *
 1. Ensure your device is on the same network as the Jetson
 2. Find Jetson IP: `hostname -I`
 3. Open browser to: `http://<JETSON_IP>:8080/web_viewer.html`
+
+### Jetson WiFi: Client vs Access Point
+
+To use the Jetson as a WiFi hotspot (connect your laptop/phone directly to it), run on the Jetson:
+
+- **AP mode:** `sudo scripts/jetson_wifi_ap.sh` — then connect to WiFi **JetsonAP** (default password: `jetsonap123`), Jetson at **10.42.0.1**
+- **Back to client (zander):** `sudo scripts/jetson_wifi_client.sh`
+
+See [docs/hardware/jetson_wifi_ap.md](docs/hardware/jetson_wifi_ap.md) for details and custom SSID/password.
 
 ### Foxglove Studio (Alternative)
 
@@ -188,7 +197,8 @@ pkill -f combined_server
 ```bash
 ls -l /dev/ttyUSB*   # Check device exists
 sudo chmod 666 /dev/ttyUSB0
-ros2 launch robot_bringup d500_lidar.launch.py port_name:=/dev/ttyUSB0
+ros2 launch robot_bringup d500_lidar.launch.py use_usb:=true
+# or: port_name:=/dev/ttyUSB0
 ```
 
 ## License
