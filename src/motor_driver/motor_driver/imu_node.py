@@ -24,7 +24,7 @@ class ImuNode(Node):
         super().__init__("imu_node")
         
         # Parameters
-        self.declare_parameter("i2c_bus", 8)
+        self.declare_parameter("i2c_bus", 4)  # ICM20948 on Waveshare stereo board: bus 4 @ 0x68 on Jetson Xavier NX
         self.declare_parameter("i2c_addr", 0x68)
         self.declare_parameter("publish_rate", 100.0)
         self.declare_parameter("frame_id", "imu_link")

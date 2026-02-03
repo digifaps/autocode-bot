@@ -46,12 +46,22 @@ ros2 launch robot_bringup robot.launch.py &
 PIDS+=($!)
 sleep 3
 
-# 2) LiDAR over USB
-ros2 launch robot_bringup d500_lidar.launch.py use_usb:=true &
+# 2) LiDAR over USB (set LIDAR_USB_PORT=/dev/ttyUSB1 if device is on ttyUSB1)
+LIDAR_PORT="${LIDAR_USB_PORT:-/dev/ttyUSB0}"
+ros2 launch robot_bringup d500_lidar.launch.py use_usb:=true port_name:="$LIDAR_PORT" &
 PIDS+=($!)
 sleep 2
 
 # 3) ROS2 -> WebSocket bridge (real /scan, /imu/data_raw)
+# Free port 9090 so we don't get "address already in use"
+pkill -f ros2_websocket_bridge 2>/dev/null || true
+pkill -f combined_server 2>/dev/null || true
+sleep 2
+if command -v ss &>/dev/null; then
+  PID=$(ss -tlnp 2>/dev/null | awk -F'[=,]' '/:9090 /{print $2}' | tr -d ' ')
+  [ -n "$PID" ] && kill -9 "$PID" 2>/dev/null || true
+  sleep 1
+fi
 python3 "$BOT_REL/src/telemetry/ros2_websocket_bridge.py" &
 PIDS+=($!)
 sleep 1
