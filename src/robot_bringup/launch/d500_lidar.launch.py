@@ -3,16 +3,23 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
     """Generate launch description for D500 LiDAR."""
+    use_usb_arg = DeclareLaunchArgument(
+        "use_usb",
+        default_value="false",
+        description="Use USB adapter (default port /dev/ttyUSB0) instead of onboard UART (/dev/ttyTHS1)",
+    )
     port_name_arg = DeclareLaunchArgument(
         "port_name",
-        default_value="/dev/ttyTHS1",
-        description="Serial port for D500 LiDAR (e.g. /dev/ttyTHS1 for onboard UART, /dev/ttyUSB0 for USB adapter)",
+        default_value=PythonExpression([
+            "'/dev/ttyUSB0' if '", LaunchConfiguration("use_usb"), "' == 'true' else '/dev/ttyTHS1'"
+        ]),
+        description="Serial port (default: UART /dev/ttyTHS1, or /dev/ttyUSB0 if use_usb:=true; override with port_name:=/dev/ttyUSB1 etc.)",
     )
     use_lidar_power_arg = DeclareLaunchArgument(
         "use_lidar_power",
@@ -66,6 +73,7 @@ def generate_launch_description():
     )
 
     ld = LaunchDescription()
+    ld.add_action(use_usb_arg)
     ld.add_action(port_name_arg)
     ld.add_action(use_lidar_power_arg)
     ld.add_action(power_enable_gpio_pin_arg)

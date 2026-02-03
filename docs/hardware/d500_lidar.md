@@ -92,10 +92,15 @@ ros2 launch robot_bringup d500_lidar.launch.py
 ros2 launch robot_bringup d500_lidar.launch.py use_lidar_power:=true power_enable_gpio_pin:=12
 ```
 
-**USB adapter:**
+**USB adapter:** use the `use_usb` option (default port `/dev/ttyUSB0`) or override with `port_name`:
 
 ```bash
+# Short form (uses /dev/ttyUSB0)
+ros2 launch robot_bringup d500_lidar.launch.py use_usb:=true
+
+# Or specify port explicitly
 ros2 launch robot_bringup d500_lidar.launch.py port_name:=/dev/ttyUSB0
+ros2 launch robot_bringup d500_lidar.launch.py port_name:=/dev/ttyUSB1
 ```
 
 ## Power control (switch on when needed)
