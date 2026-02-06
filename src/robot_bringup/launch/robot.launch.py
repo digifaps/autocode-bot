@@ -38,6 +38,15 @@ def generate_launch_description():
         output="screen",
     )
 
+    # IMU node (publishes /imu/data_raw from stereo camera board)
+    imu_node = Node(
+        package="motor_driver",
+        executable="imu_node",
+        name="imu_node",
+        parameters=[{"use_sim_time": use_sim_time}],
+        output="screen",
+    )
+
     # Stereo camera node
     stereo_camera = Node(
         package="stereo_vision",
@@ -64,6 +73,7 @@ def generate_launch_description():
         ),
         robot_state_publisher,
         motor_driver,
+        imu_node,
         stereo_camera,
         depth_processor,
     ])

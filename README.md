@@ -107,7 +107,8 @@ The web-based telemetry dashboard displays:
 - **IMU Data** - Real-time linear acceleration and angular velocity
 - **Connection Status** - WebSocket connection indicator
 
-With the default `combined_server.py` you get a **fake** `/scan` for demo. For **real** LiDAR, run [rosbridge_suite](https://github.com/RobotWebTools/rosbridge_suite) (ROS2) on port 9090 instead; the same page will show live `/scan` and `/imu/data_raw` from ROS2.
+- **Fake data (no ROS):** Run `combined_server.py` on port 9090 for demo IMU + fake `/scan`.
+- **Real data (ROS + LiDAR + stereo + IMU):** Run `scripts/start_telemetry_real.sh` from your workspace root (or from the repo root). It starts ROS (robot + LiDAR over USB), the ROS2→WebSocket bridge on 9090, video server (8081), and HTTP server (8080). Then open the same page for live `/scan`, `/imu/data_raw`, and stereo camera feeds.
 
 ### Accessing from External Devices
 

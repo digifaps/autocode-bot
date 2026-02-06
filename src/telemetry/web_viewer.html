@@ -178,7 +178,13 @@
         };
 
         ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
+            let data;
+            try {
+                data = JSON.parse(event.data);
+            } catch (e) {
+                console.warn('WebSocket parse error:', e);
+                return;
+            }
             if (data.op === 'publish' && data.msg) {
                 const msg = data.msg;
                 const isScan = data.topic === '/scan' || (msg.ranges && msg.angle_min != null);
