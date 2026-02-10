@@ -38,12 +38,22 @@ autocode-bot/
     ├── motor_driver/       # Motor control & IMU node
     ├── stereo_vision/      # Camera and depth processing
     ├── robot_description/  # URDF and meshes
-    └── telemetry/          # Web-based telemetry dashboard
+    └── telemetry/          # Rosbridge WebSocket bridge (Foxglove); optional web viewer
 ```
 
 ## Quick Start
 
-### 1. Build the Workspace
+### 1. Python dependencies (IMU node)
+
+The IMU node requires the Pimoroni `icm20948` library (Waveshare-compatible). On the Jetson:
+
+```bash
+pip3 install icm20948 smbus2
+```
+
+See [docs/hardware/imu_i2c.md](docs/hardware/imu_i2c.md) for I2C bus detection and troubleshooting.
+
+### 2. Build the Workspace
 
 ```bash
 source ~/ros2_humble/install/setup.bash
@@ -52,25 +62,18 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-### 2. Start Telemetry Dashboard
+### 3. Start for Foxglove (IMU, cameras, LiDAR)
 
-The telemetry system provides a browser-based dashboard for monitoring robot sensors.
+On the Jetson, from the workspace root:
 
 ```bash
-# Terminal 1: Start the IMU data bridge (rosbridge protocol)
-python3 ~/ros2_ws/src/autocode-bot/src/telemetry/combined_server.py &
-
-# Terminal 2: Start the video streaming server
-python3 ~/ros2_ws/src/autocode-bot/src/telemetry/video_server.py &
-
-# Terminal 3: Start the web server
-cd ~/ros2_ws/src/autocode-bot/src/telemetry
-python3 -m http.server 8080 &
+source install/setup.bash
+scripts/start_foxglove.sh
 ```
 
-Then open in your browser: **http://<JETSON_IP>:8080/web_viewer.html**
+Then in **Foxglove Studio**: Add connection → **Rosbridge (WebSocket)** → `ws://<JETSON_IP>:9090`. Use panels for `/imu/data_raw`, `camera/left/image_raw`, `camera/right/image_raw`, `/scan`.
 
-### 3. Start LiDAR (Waveshare D500)
+### 4. Start LiDAR (Waveshare D500)
 
 **Onboard UART (default):** Connect D500 to Jetson 40-pin (Pin 8=TX, 10=RX, GND). Default port is `/dev/ttyTHS1`.
 
@@ -86,34 +89,28 @@ ros2 launch robot_bringup d500_lidar.launch.py use_lidar_power:=true power_enabl
 # Then: ros2 service call /lidar/set_power std_srvs/srv/SetBool "{data: true/false}"
 ```
 
-**USB adapter:** Use `use_usb:=true` (default `/dev/ttyUSB0`) or `port_name:=/dev/ttyUSB0`. Set permissions: `sudo chmod 666 /dev/ttyUSB0`.
+**USB adapter:** Use `use_usb:=true` (default `/dev/ttyUSB0`) or `port_name:=/dev/ttyUSB0`. USB and I2C work as-is; no extra setup required.
 
 See [docs/hardware/d500_lidar.md](docs/hardware/d500_lidar.md) for wiring, scan-speed notes, and troubleshooting.
 
-### Services Overview
+### Foxglove (recommended)
 
-| Service | Port | Description |
-|---------|------|-------------|
-| Web Dashboard | 8080 | HTML telemetry viewer |
-| Video Streams | 8081 | MJPEG stereo camera feeds |
-| Rosbridge | 9090 | WebSocket for IMU data |
+| Port | Description |
+|------|-------------|
+| 9090 | Rosbridge WebSocket — IMU, LiDAR, stereo images. Connect Foxglove Studio to `ws://<JETSON_IP>:9090`. |
 
-## Telemetry Dashboard
+**Official Rosbridge (recommended for Foxglove):** For proper ROS 2 version detection in Foxglove (no “unable to detect ROS version” warning), install and use the official rosbridge WebSocket server:
 
-The web-based telemetry dashboard displays:
+```bash
+cd ~/ros2_ws && ./src/autocode-bot/scripts/install_rosbridge.sh
+source install/setup.bash
+```
 
-- **Stereo Camera Feeds** - Live left/right camera streams via MJPEG
-- **LiDAR Range Map** - Top-down 2D view of `/scan` (LaserScan); robot at center, range rings every 2 m
-- **IMU Data** - Real-time linear acceleration and angular velocity
-- **Connection Status** - WebSocket connection indicator
+Then `scripts/start_foxglove.sh` will automatically use the official Rosbridge when available; otherwise it falls back to the custom bridge.
 
-With the default `combined_server.py` you get a **fake** `/scan` for demo. For **real** LiDAR, run [rosbridge_suite](https://github.com/RobotWebTools/rosbridge_suite) (ROS2) on port 9090 instead; the same page will show live `/scan` and `/imu/data_raw` from ROS2.
+**Compressed images (recommended with rosbridge):** To avoid high memory use and OOM when viewing cameras in Foxglove, subscribe to **compressed** topics instead of raw: `/camera/left/compressed` and `/camera/right/compressed`. The `compressed_image_node` (launched with the robot) converts raw images to JPEG at 10 Hz; start the robot (or stereo + relay) so these topics are available.
 
-### Accessing from External Devices
-
-1. Ensure your device is on the same network as the Jetson
-2. Find Jetson IP: `hostname -I`
-3. Open browser to: `http://<JETSON_IP>:8080/web_viewer.html`
+**Optional web panel:** Run `scripts/start_telemetry_real.sh` instead to also start the HTML dashboard (8080) and MJPEG server (8081). Panel setup: [telemetry_debug.md](docs/software/telemetry_debug.md#foxglove-studio-accelerometer--cameras).
 
 ### Jetson WiFi: Client vs Access Point
 
@@ -123,14 +120,6 @@ To use the Jetson as a WiFi hotspot (connect your laptop/phone directly to it), 
 - **Back to client (zander):** `sudo scripts/jetson_wifi_client.sh`
 
 See [docs/hardware/jetson_wifi_ap.md](docs/hardware/jetson_wifi_ap.md) for details and custom SSID/password.
-
-### Foxglove Studio (Alternative)
-
-You can also connect Foxglove Studio for advanced visualization:
-
-1. Open Foxglove Studio
-2. Select "Rosbridge (WebSocket)"
-3. Connect to: `ws://<JETSON_IP>:9090`
 
 ## LiDAR (Waveshare D500)
 
@@ -196,7 +185,6 @@ pkill -f combined_server
 ### LiDAR not publishing
 ```bash
 ls -l /dev/ttyUSB*   # Check device exists
-sudo chmod 666 /dev/ttyUSB0
 ros2 launch robot_bringup d500_lidar.launch.py use_usb:=true
 # or: port_name:=/dev/ttyUSB0
 ```
