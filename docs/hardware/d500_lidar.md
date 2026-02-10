@@ -45,32 +45,9 @@ colcon build --packages-select ldlidar_stl_ros2 lidar_control --symlink-install
 source install/setup.bash
 ```
 
-### 2. Serial port permissions
+### 2. Serial port
 
-**Onboard UART (`/dev/ttyTHS1`):** Usually usable by users in `dialout`; add yourself if needed:
-
-```bash
-sudo usermod -aG dialout $USER
-# Log out and back in
-```
-
-**USB adapter (e.g. `/dev/ttyUSB0`):**
-
-```bash
-# Temporary
-sudo chmod 666 /dev/ttyUSB0
-
-# Persistent: add user to dialout (as above)
-```
-
-Optional udev rule for USB adapter (fixed name e.g. `/dev/d500`):
-
-```bash
-# /etc/udev/rules.d/99-d500-lidar.rules
-SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="d500", MODE="0666"
-```
-
-Replace `idVendor`/`idProduct` with values from `lsusb`. Then: `sudo udevadm control --reload-rules`.
+USB (e.g. `/dev/ttyUSB0`) and onboard UART (`/dev/ttyTHS1`) work as-is; no udev rules or extra setup required.
 
 ### 3. Launch
 
@@ -138,7 +115,7 @@ If you use `use_lidar_power:=true` in the launch file, the `lidar_control_node` 
 |-------|--------|
 | No `/dev/ttyTHS1` | Onboard UART: check 40-pin wiring (8=TX, 10=RX); verify pinmux if needed |
 | No `/dev/ttyUSB*` | USB cable and adapter; run `lsusb` and `dmesg \| tail` |
-| Permission denied | Add user to `dialout` or `sudo chmod 666 /dev/ttyTHS1` or `/dev/ttyUSB0` |
+| Permission denied | Add user to `dialout`: `sudo usermod -aG dialout $USER`, then log out and back in |
 | No data on `/scan` | Correct port in launch; baud 230400; LiDAR powered (use `lidar/set_power` if using GPIO) |
 | Wrong port | List with `ls /dev/tty*` and use `port_name:=/dev/ttyXXX` |
 

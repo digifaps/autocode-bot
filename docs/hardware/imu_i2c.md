@@ -35,8 +35,45 @@ So the node looks for the IMU on **bus 4** by default.
    ```
    Or in a launch file, pass the parameter so that `imu_node` uses the bus where you see 0x68/0x69.
 
+I2C works as-is on the Jetson; no udev rules or unbind scripts are required.
+
 ## “Unable to find ICM20948” / “Unable to find AK09916”
 
 - **i2cdetect -y 1** showed no devices → bus 1 is not the bus the IMU uses.
 - Run **i2cdetect -y 8** (and other buses) to see which bus has 0x68/0x69.
 - If no bus shows the IMU: check wiring and power of the stereo camera board; the IMU is on that board and shares its I2C connection (often via the same cable/connector as the cameras).
+
+## Python dependencies (required for imu_node)
+
+The ROS2 `imu_node` uses the Pimoroni `icm20948` library (Waveshare-compatible). Install on the Jetson:
+
+```bash
+pip3 install icm20948 smbus2
+```
+
+(Or use `pip3 install --user` if you prefer not to touch system Python.)
+
+## Checking IMU up to the ROS module
+
+1. **Start the IMU node** (standalone, to isolate from other nodes):
+   ```bash
+   source ~/ros2_ws/install/setup.bash
+   ros2 run motor_driver imu_node
+   ```
+   You should see: `ICM20948 initialized on bus 4, addr 0x68` and `IMU node started at 100.0 Hz`.  
+   If you see `Unable to find ICM20948` or `Unable to find AK09916`, use another I2C bus (see above) or check wiring.
+
+2. **In another terminal, check that data is published:**
+   ```bash
+   source ~/ros2_ws/install/setup.bash
+   ros2 topic list | grep imu
+   ros2 topic echo /imu/data_raw --once
+   ros2 topic echo /imu/mag --once
+   ```
+   You should see `sensor_msgs/msg/Imu` on `/imu/data_raw` (linear_acceleration in m/s², angular_velocity in rad/s) and `sensor_msgs/msg/MagneticField` on `/imu/mag` (magnetic_field in Tesla).
+
+3. **When using the full robot launch**, the IMU node is started by `robot.launch.py`. You can override I2C bus/address via parameters, e.g.:
+   ```bash
+   ros2 launch robot_bringup robot.launch.py i2c_bus:=1
+   ```
+   The main robot launch file supports `i2c_bus` and `i2c_addr`; e.g. `ros2 launch robot_bringup robot.launch.py i2c_bus:=1`.
