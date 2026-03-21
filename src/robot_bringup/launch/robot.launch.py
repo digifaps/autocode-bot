@@ -71,7 +71,10 @@ def generate_launch_description():
         package="stereo_vision",
         executable="stereo_camera_node",
         name="stereo_camera",
-        parameters=[{"use_sim_time": use_sim_time}],
+        parameters=[
+            {"use_sim_time": use_sim_time},
+            {"frame_rate": 20.0},
+        ],
         output="screen",
     )
 
