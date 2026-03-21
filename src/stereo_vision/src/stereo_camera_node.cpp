@@ -89,11 +89,17 @@ private:
   {
     cv::Mat left_frame, right_frame;
 
-    // Capture from both cameras (software sync - grab as close together as possible)
-    left_cap_.grab();
-    right_cap_.grab();
-    left_cap_.retrieve(left_frame);
-    right_cap_.retrieve(right_frame);
+    // Grab first; only retrieve if grab succeeded to avoid GStreamer assertion on null sample
+    if (!left_cap_.grab() || !right_cap_.grab()) {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+        "Camera grab failed, skipping frame (no valid sample)");
+      return;
+    }
+    if (!left_cap_.retrieve(left_frame) || !right_cap_.retrieve(right_frame)) {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+        "Camera retrieve failed, skipping frame");
+      return;
+    }
 
     if (left_frame.empty() || right_frame.empty()) {
       RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,

@@ -62,7 +62,7 @@ If you see `combined_server.py` on 9090 instead of `ros2_websocket_bridge.py`, t
 ### 7. LiDAR "waiting for scan" – no /scan messages
 
 - If the bridge never logs "First /scan received", the LiDAR driver is not publishing.
-- **Check on Jetson:** `ls /dev/ttyUSB*` — if empty, no USB LiDAR device. Connect the D500 via USB-to-UART and ensure the adapter is recognized (`/dev/ttyUSB0` or `/dev/ttyACM0`). Then `sudo chmod 666 /dev/ttyUSB0` (or the actual device).
+- **Check on Jetson:** `ls /dev/ttyUSB*` — if empty, no USB LiDAR device. Connect the D500 via USB-to-UART and ensure the adapter is recognized (`/dev/ttyUSB0` or `/dev/ttyACM0`).
 - Run `scripts/check_scan_topic.py` (with workspace sourced) to count /scan messages in 10 s; 0 means the driver isn't publishing (USB/port/power or driver error).
 
 ## Summary
@@ -76,3 +76,26 @@ If you see `combined_server.py` on 9090 instead of `ros2_websocket_bridge.py`, t
 (1) Verify topics with `ros2 topic list` and `ros2 topic hz` on the Jetson.  
 (2) In the bridge: sanitize LaserScan `ranges` (replace or drop NaN/inf) before `json.dumps()`.  
 (3) Ensure the process on port 9090 is `ros2_websocket_bridge.py` and that robot + LiDAR (+ IMU) launches are running in the same ROS 2 environment.
+
+---
+
+## Foxglove Studio (accelerometer + cameras)
+
+The same WebSocket bridge (port 9090) is used by **Foxglove Studio** via **Rosbridge (WebSocket)**. The bridge forwards:
+
+| Topic | Message type | Notes |
+|-------|--------------|--------|
+| `/imu/data_raw` | `sensor_msgs/Imu` | Full message (header.stamp, orientation, linear_acceleration, angular_velocity, covariances). Use **Raw Messages** or **Plot** for accelerometer/gyro. |
+| `/scan` | `sensor_msgs/LaserScan` | LiDAR; use **Image** (range) or **3D** / **Map** panels. |
+| `/camera/left/image_raw` | `sensor_msgs/Image` | Left stereo image (throttled to 5 Hz). Use leading slash in Foxglove. |
+| `/camera/right/image_raw` | `sensor_msgs/Image` | Right stereo image (throttled to 5 Hz). |
+| `/camera/left/image_raw/compressed` | `sensor_msgs/CompressedImage` | Left as JPEG (smaller; try this if raw shows no video). |
+| `/camera/right/image_raw/compressed` | `sensor_msgs/CompressedImage` | Right as JPEG. |
+
+### How to view in Foxglove
+
+1. **Start robot + bridge** on the Jetson: `scripts/start_telemetry_real.sh` (or run `robot.launch.py` then `ros2_websocket_bridge.py` on port 9090).
+2. **Open Foxglove Studio** → Add connection → **Rosbridge (WebSocket)** → URL: `ws://<JETSON_IP>:9090` (e.g. `ws://192.168.8.171:9090`).
+3. **Panels:** Use **Raw Messages** or **Plot** for `/imu/data_raw`; **Image** for `/camera/left/image_raw` and `/camera/right/image_raw` (use the leading slash). If no video appears, try `/camera/left/image_raw/compressed` and `/camera/right/image_raw/compressed` (JPEG, smaller). **3D** or **Map** for `/scan`.
+
+Image topics are throttled to 5 Hz; compressed topics are JPEG for lower bandwidth.

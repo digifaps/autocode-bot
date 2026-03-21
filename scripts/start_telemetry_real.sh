@@ -1,7 +1,7 @@
 #!/bin/bash
 # Start ROS (stereo + IMU + LiDAR over USB) and telemetry so the webpage shows real data.
 # Run from your ROS2 workspace root (e.g. cd ~/ros2_ws) or from autocode-bot repo root.
-# LiDAR: use_usb:=true (default /dev/ttyUSB0). Set permissions: sudo chmod 666 /dev/ttyUSB0
+# LiDAR: use_usb:=true (default /dev/ttyUSB0). USB works as-is.
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
