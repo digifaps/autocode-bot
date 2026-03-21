@@ -121,6 +121,39 @@ To use the Jetson as a WiFi hotspot (connect your laptop/phone directly to it), 
 
 See [docs/hardware/jetson_wifi_ap.md](docs/hardware/jetson_wifi_ap.md) for details and custom SSID/password.
 
+### Basic mapping (LiDAR + IMU)
+
+Use the D500 LiDAR and IMU with **slam_toolbox** for 2D mapping. Install or build slam_toolbox (once), then run the mapping launch.
+
+**If you use ROS2 from the system** (e.g. `/opt/ros/humble`):
+
+```bash
+sudo apt install ros-humble-slam-toolbox
+```
+
+**If you built ROS2 from source** (e.g. in `~/ros2_humble`), build slam_toolbox from source in your workspace. Install system deps first, then build without the RViz plugin (avoids needing the full rviz2 stack):
+
+```bash
+# System deps (Boost, SuiteSparse, Ceres)
+sudo apt install -y libboost-system-dev libboost-filesystem-dev libboost-thread-dev \
+  libboost-serialization-dev libsuitesparse-dev libceres-dev
+
+cd ~/ros2_ws/src
+git clone https://github.com/SteveMacenski/slam_toolbox.git -b humble
+cd ~/ros2_ws
+source ~/ros2_humble/install/setup.bash   # or your ROS2 install path
+colcon build --packages-select slam_toolbox --symlink-install --allow-overriding slam_toolbox \
+  --cmake-args -DBUILD_RVIZ_PLUGIN=OFF -DBoost_NO_BOOST_CMAKE=ON
+```
+
+Then run mapping (from workspace root, after `source install/setup.bash`):
+
+```bash
+ros2 launch robot_bringup mapping.launch.py
+```
+
+This starts: robot state publisher, D500 LiDAR (`/scan`), IMU (`/imu/data_raw`), an IMU-based `odom` → `base_link` TF (gyro yaw), and slam_toolbox. The map is published on `/map`; TF chain is `map` → `odom` (slam_toolbox) → `base_link` (imu_odom_node) → `base_laser`. View the map in Foxglove (Map panel, topic `/map`) or RViz. Move the robot (by hand or with teleop) to build the map; save it later with `ros2 run nav2_map_server map_saver_cli` when using Nav2.
+
 ## LiDAR (Waveshare D500)
 
 The D500 is a 360° 2D LiDAR (LDROBOT LD19 compatible) that publishes `sensor_msgs/LaserScan` on `/scan`. It is used for 2D SLAM and Nav2 obstacle avoidance.
