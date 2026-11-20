@@ -41,18 +41,14 @@ trap cleanup SIGINT SIGTERM
 echo "Workspace: $WS_ROOT"
 echo "Robot package: $BOT_REL"
 
-# 1) Robot (stereo cameras + IMU + depth_processor + motor_driver)
-ros2 launch robot_bringup robot.launch.py &
+# 1) Robot (stereo cameras + IMU + depth_processor + motor_driver + D500 LiDAR; LiDAR is included by robot.launch.py)
+# LiDAR over USB by default; set LIDAR_USB_PORT=/dev/ttyUSB1 if the adapter enumerates elsewhere
+LIDAR_PORT="${LIDAR_USB_PORT:-/dev/ttyUSB0}"
+ros2 launch robot_bringup robot.launch.py lidar_use_usb:=true lidar_port_name:="$LIDAR_PORT" &
 PIDS+=($!)
 sleep 3
 
-# 2) LiDAR over USB (set LIDAR_USB_PORT=/dev/ttyUSB1 if device is on ttyUSB1)
-LIDAR_PORT="${LIDAR_USB_PORT:-/dev/ttyUSB0}"
-ros2 launch robot_bringup d500_lidar.launch.py use_usb:=true port_name:="$LIDAR_PORT" &
-PIDS+=($!)
-sleep 2
-
-# 3) ROS2 -> WebSocket bridge (real /scan, /imu/data_raw)
+# 2) ROS2 -> WebSocket bridge (real /scan, /imu/data_raw)
 # Free port 9090 so we don't get "address already in use"
 pkill -f ros2_websocket_bridge 2>/dev/null || true
 pkill -f combined_server 2>/dev/null || true
@@ -66,11 +62,11 @@ python3 "$BOT_REL/src/telemetry/ros2_websocket_bridge.py" &
 PIDS+=($!)
 sleep 1
 
-# 4) MJPEG video server (stereo cameras via GStreamer)
+# 3) MJPEG video server (stereo cameras via GStreamer)
 python3 "$BOT_REL/src/telemetry/video_server.py" &
 PIDS+=($!)
 
-# 5) HTTP server for web viewer
+# 4) HTTP server for web viewer
 (cd "$BOT_REL/src/telemetry" && python3 -m http.server 8080) &
 PIDS+=($!)
 

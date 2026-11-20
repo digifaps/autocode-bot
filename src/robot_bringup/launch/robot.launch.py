@@ -6,7 +6,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
@@ -103,6 +103,7 @@ def generate_launch_description():
     lidar_use_usb = LaunchConfiguration("lidar_use_usb", default="true")
     lidar_use_power = LaunchConfiguration("lidar_use_power", default="false")
     lidar_power_gpio = LaunchConfiguration("lidar_power_gpio_pin", default="12")
+    lidar_port_name = LaunchConfiguration("lidar_port_name")
     d500_lidar_launch_path = PathJoinSubstitution([
         FindPackageShare("robot_bringup"),
         "launch",
@@ -112,6 +113,7 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(d500_lidar_launch_path),
         launch_arguments=[
             ("use_usb", lidar_use_usb),
+            ("port_name", lidar_port_name),
             ("use_lidar_power", lidar_use_power),
             ("power_enable_gpio_pin", lidar_power_gpio),
         ],
@@ -137,6 +139,13 @@ def generate_launch_description():
             "lidar_use_usb",
             default_value="true",
             description="Use USB for D500 LiDAR (default /dev/ttyUSB0); false = onboard UART /dev/ttyTHS1",
+        ),
+        DeclareLaunchArgument(
+            "lidar_port_name",
+            default_value=PythonExpression([
+                "'/dev/ttyUSB0' if '", lidar_use_usb, "' == 'true' else '/dev/ttyTHS1'"
+            ]),
+            description="LiDAR serial port (default: /dev/ttyUSB0 if lidar_use_usb else /dev/ttyTHS1)",
         ),
         DeclareLaunchArgument(
             "lidar_use_power",
