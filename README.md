@@ -75,6 +75,15 @@ scripts/start_foxglove.sh
 
 Then in **Foxglove Studio**: Open connection → **Foxglove WebSocket** → `ws://<JETSON_IP>:8765`. Use panels for `/imu/data_raw`, `/scan`, `/camera/left/compressed`, `/camera/right/compressed` (raw `image_raw` topics also work). One-time setup: see [Foxglove](#foxglove-recommended) below.
 
+**Cameras:** `stereo_camera_node` publishes both topic types per camera from one GStreamer pipeline:
+
+| Topic | Type | Rate | How |
+|---|---|---|---|
+| `/camera/{left,right}/compressed` | `CompressedImage` (JPEG) | 10 Hz (`jpeg_max_rate`, `jpeg_quality` 85) | Jetson hardware JPEG encoder (`nvjpegenc`) |
+| `/camera/{left,right}/image_raw` | `Image` (bgr8, 1280×720) | 20 Hz (`frame_rate`) | `nvvidconv` + CPU BGR conversion |
+
+Each branch only runs while its topic has subscribers, so with no client connected the cameras cost about 30 % of one core in total. Launch respawns the node if a camera stalls or `nvargus-daemon` restarts (Argus cannot recover inside a running process); on Ctrl+C the camera source occasionally needs up to 6 s to stop. The old Python relay (`image_relay`, `compressed_image.launch.py`) is kept only as a fallback; start the camera node with `publish_compressed:=false` if you use it.
+
 ### 4. Start LiDAR (Waveshare D500)
 
 **Onboard UART (default):** Connect D500 to Jetson 40-pin (Pin 8=TX, 10=RX, GND). Default port is `/dev/ttyTHS1`.
@@ -116,7 +125,7 @@ Why foxglove_bridge instead of rosbridge (measured on the Xavier NX, one client,
 | | foxglove_bridge | rosbridge |
 |---|---|---|
 | IMU + LiDAR + 2× compressed camera | full rates, **8 %** of one core, 54 MB RSS | full rates, 55 % CPU, 100 MB |
-| + 2× raw 1280×720 camera | raw at 6–7 fps, other topics unaffected, 41 % CPU | **all topics drop to 1 Hz**, 100 % CPU |
+| + 2× raw 1280×720 camera | raw at ~19 fps, other topics unaffected, 95 % CPU | **all topics drop to 1 Hz**, 100 % CPU |
 
 **Rosbridge fallback:** `./src/autocode-bot/scripts/install_rosbridge.sh` builds rosbridge_suite **2.0.4** with `scripts/patches/rosbridge_humble_py38.patch` (upstream Humble rosbridge uses Python 3.10+ features and fails on Ubuntu 20.04's Python 3.8). It also builds **xacro**, which `robot.launch.py` needs for the full robot model (camera and IMU frames); without xacro it silently falls back to a minimal `base_footprint` → `base_link` URDF. With rosbridge, subscribe to the **compressed** camera topics only: raw images over rosbridge's JSON saturate the CPU.
 

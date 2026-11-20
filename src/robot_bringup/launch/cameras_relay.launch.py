@@ -1,4 +1,4 @@
-"""Launch stereo cameras and compressed image relay only (no motors, IMU, depth)."""
+"""Launch stereo cameras only: raw + hardware JPEG compressed topics (no motors, IMU, depth)."""
 
 from launch import LaunchDescription
 from launch.substitutions import LaunchConfiguration
@@ -15,22 +15,18 @@ def generate_launch_description():
         parameters=[
             {"use_sim_time": use_sim_time},
             {"frame_rate": 20.0},
-        ],
-        output="screen",
-    )
-
-    compressed_image = Node(
-        package="image_relay",
-        executable="compressed_image_node",
-        name="compressed_image_node",
-        parameters=[
+            # Hardware JPEG (nvjpegenc) on camera/{left,right}/compressed
             {"jpeg_quality": 85},
-            {"max_hz": 10.0},
+            {"jpeg_max_rate": 10},
         ],
         output="screen",
+        # nvarguscamerasrc can take up to its 5 s acquire-wait to stop; don't escalate at 5 s
+        sigterm_timeout="8",
+        # The node exits if a camera stalls or nvargus-daemon restarts (Argus cannot recover in-process)
+        respawn=True,
+        respawn_delay=3.0,
     )
 
     return LaunchDescription([
         stereo_camera,
-        compressed_image,
     ])
