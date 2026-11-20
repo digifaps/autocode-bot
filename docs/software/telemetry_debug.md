@@ -81,6 +81,8 @@ If you see `combined_server.py` on 9090 instead of `ros2_websocket_bridge.py`, t
 
 ## Foxglove Studio (accelerometer + cameras)
 
+> **Recommended:** use `scripts/start_foxglove.sh`, which runs **foxglove_bridge** on port 8765 (Foxglove Studio → Open connection → **Foxglove WebSocket** → `ws://<JETSON_IP>:8765`). It streams every topic, including raw images, at a fraction of the CPU. See the README *Foxglove* section. The section below describes the custom bridge on port 9090 started by `scripts/start_telemetry_real.sh` for the web viewer.
+
 The same WebSocket bridge (port 9090) is used by **Foxglove Studio** via **Rosbridge (WebSocket)**. The bridge forwards:
 
 | Topic | Message type | Notes |
