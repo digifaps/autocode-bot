@@ -58,9 +58,11 @@ See [docs/hardware/imu_i2c.md](docs/hardware/imu_i2c.md) for I2C bus detection a
 ```bash
 source ~/ros2_humble/install/setup.bash
 cd ~/ros2_ws
-colcon build --symlink-install
+colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 source install/setup.bash
 ```
+
+Always pass `-DCMAKE_BUILD_TYPE=Release`: colcon's default is an empty build type, which compiles C++ packages such as the LiDAR driver, cv_bridge and image_geometry without optimization. `stereo_vision` (and slam_toolbox) default to Release on their own; most third-party packages do not.
 
 ### 3. Start for Foxglove (IMU, cameras, LiDAR)
 
@@ -151,7 +153,7 @@ git clone https://github.com/SteveMacenski/slam_toolbox.git -b humble
 cd ~/ros2_ws
 source ~/ros2_humble/install/setup.bash   # or your ROS2 install path
 colcon build --packages-select slam_toolbox --symlink-install --allow-overriding slam_toolbox \
-  --cmake-args -DBUILD_RVIZ_PLUGIN=OFF -DBoost_NO_BOOST_CMAKE=ON
+  --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_RVIZ_PLUGIN=OFF -DBoost_NO_BOOST_CMAKE=ON
 ```
 
 Then run mapping (from workspace root, after `source install/setup.bash`):

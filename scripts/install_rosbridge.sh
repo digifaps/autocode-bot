@@ -66,7 +66,7 @@ for f in /opt/ros/humble/setup.bash "$HOME/ros2_humble/install/setup.bash"; do
     [ -f "$f" ] && source "$f" && break
 done
 rosdep install -y --from-paths src/rosbridge_suite --ignore-src 2>/dev/null || true
-colcon build --packages-up-to rosbridge_server xacro --symlink-install
+colcon build --packages-up-to rosbridge_server xacro --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 source install/setup.bash
 echo "Done. Rosbridge (patched for Python 3.8) and xacro built from source."
 echo "Usage: source ~/ros2_humble/install/setup.bash && source install/setup.bash && ros2 launch rosbridge_server rosbridge_websocket_launch.xml"
