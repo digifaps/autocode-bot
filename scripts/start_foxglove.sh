@@ -1,7 +1,9 @@
 #!/bin/bash
 # Start ROS (stereo + IMU + LiDAR) and the WebSocket bridge for Foxglove only. No web panel, no MJPEG server.
 # Run from ROS2 workspace root (e.g. cd ~/ros2_ws) or from autocode-bot repo root.
-# Connect Foxglove Studio → Rosbridge (WebSocket) → ws://<JETSON_IP>:9090
+# Bridge: foxglove_bridge if built (Foxglove Studio → Foxglove WebSocket → ws://<JETSON_IP>:8765),
+#         else rosbridge / custom bridge (Foxglove Studio → Rosbridge → ws://<JETSON_IP>:9090).
+# Force a bridge with FOXGLOVE_BRIDGE=foxglove|rosbridge|custom.
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,36 +44,58 @@ ros2 launch robot_bringup robot.launch.py lidar_use_usb:=true lidar_port_name:="
 PIDS+=($!)
 sleep 3
 
-# 2) Rosbridge WebSocket for Foxglove (port 9090): prefer official rosbridge_suite, else custom bridge
+# 2) WebSocket bridge for Foxglove
+free_port() {
+  if command -v ss &>/dev/null; then
+    local pid
+    pid=$(ss -tlnp 2>/dev/null | awk -F'[=,]' "/:$1 /{print \$2}" | tr -d ' ')
+    [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
+  fi
+}
+pkill -x foxglove_bridge 2>/dev/null || true
 pkill -f ros2_websocket_bridge 2>/dev/null || true
 pkill -f combined_server 2>/dev/null || true
 pkill -f rosbridge_websocket 2>/dev/null || true
 sleep 2
-if command -v ss &>/dev/null; then
-  PID=$(ss -tlnp 2>/dev/null | awk -F'[=,]' '/:9090 /{print $2}' | tr -d ' ')
-  [ -n "$PID" ] && kill -9 "$PID" 2>/dev/null || true
-  sleep 1
-fi
+free_port 8765
+free_port 9090
 
-USE_ROSBRIDGE=false
-if ros2 pkg list 2>/dev/null | grep -q rosbridge_server; then
-  USE_ROSBRIDGE=true
-fi
-if [ "$USE_ROSBRIDGE" = true ]; then
-  echo "Starting official Rosbridge WebSocket server (port 9090)..."
-  ros2 launch rosbridge_server rosbridge_websocket_launch.xml port:=9090 address:=0.0.0.0 &
-  PIDS+=($!)
-else
-  echo "Rosbridge not installed; using custom WebSocket bridge. Install for full Foxglove support:"
-  echo "  ./src/autocode-bot/scripts/install_rosbridge.sh"
-  python3 "$BOT_REL/src/telemetry/ros2_websocket_bridge.py" &
-  PIDS+=($!)
+BRIDGE="${FOXGLOVE_BRIDGE:-}"
+if [ -z "$BRIDGE" ]; then
+  if ros2 pkg executables foxglove_bridge 2>/dev/null | grep -q "foxglove_bridge foxglove_bridge"; then
+    BRIDGE=foxglove
+  elif ros2 pkg list 2>/dev/null | grep -q rosbridge_server; then
+    BRIDGE=rosbridge
+  else
+    BRIDGE=custom
+  fi
 fi
 
 IP=$(hostname -I | awk '{print $1}')
+case "$BRIDGE" in
+  foxglove)
+    echo "Starting foxglove_bridge (port 8765)..."
+    ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765 address:=0.0.0.0 &
+    PIDS+=($!)
+    CONNECT="Foxglove WebSocket -> ws://${IP}:8765"
+    ;;
+  rosbridge)
+    echo "Starting official Rosbridge WebSocket server (port 9090)..."
+    ros2 launch rosbridge_server rosbridge_websocket_launch.xml port:=9090 address:=0.0.0.0 &
+    PIDS+=($!)
+    CONNECT="Rosbridge -> ws://${IP}:9090 (use compressed image topics)"
+    ;;
+  *)
+    echo "foxglove_bridge / rosbridge not installed; using custom WebSocket bridge (limited). Install:"
+    echo "  ./src/autocode-bot/scripts/install_foxglove_bridge.sh"
+    python3 "$BOT_REL/src/telemetry/ros2_websocket_bridge.py" &
+    PIDS+=($!)
+    CONNECT="Rosbridge -> ws://${IP}:9090"
+    ;;
+esac
+
 echo ""
-echo "Foxglove: connect to ws://${IP}:9090 (Rosbridge WebSocket)"
-echo "Topics: /imu/data_raw, /scan, /camera/left/image_raw, /camera/right/image_raw"
-echo "        (if no video in Foxglove, try /camera/left/image_raw/compressed and .../right/.../compressed)"
+echo "Foxglove Studio: Open connection -> ${CONNECT}"
+echo "Topics: /imu/data_raw, /scan, /camera/{left,right}/compressed, /camera/{left,right}/image_raw, /tf, /robot_description"
 echo "Press Ctrl+C to stop."
 wait

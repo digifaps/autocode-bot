@@ -38,7 +38,7 @@ autocode-bot/
     ├── motor_driver/       # Motor control & IMU node
     ├── stereo_vision/      # Camera and depth processing
     ├── robot_description/  # URDF and meshes
-    └── telemetry/          # Rosbridge WebSocket bridge (Foxglove); optional web viewer
+    └── telemetry/          # Custom WebSocket bridge + optional web viewer (Foxglove uses foxglove_bridge)
 ```
 
 ## Quick Start
@@ -71,7 +71,7 @@ source install/setup.bash
 scripts/start_foxglove.sh
 ```
 
-Then in **Foxglove Studio**: Add connection → **Rosbridge (WebSocket)** → `ws://<JETSON_IP>:9090`. Use panels for `/imu/data_raw`, `camera/left/image_raw`, `camera/right/image_raw`, `/scan`.
+Then in **Foxglove Studio**: Open connection → **Foxglove WebSocket** → `ws://<JETSON_IP>:8765`. Use panels for `/imu/data_raw`, `/scan`, `/camera/left/compressed`, `/camera/right/compressed` (raw `image_raw` topics also work). One-time setup: see [Foxglove](#foxglove-recommended) below.
 
 ### 4. Start LiDAR (Waveshare D500)
 
@@ -97,20 +97,26 @@ See [docs/hardware/d500_lidar.md](docs/hardware/d500_lidar.md) for wiring, scan-
 
 | Port | Description |
 |------|-------------|
-| 9090 | Rosbridge WebSocket — IMU, LiDAR, stereo images. Connect Foxglove Studio to `ws://<JETSON_IP>:9090`. |
+| 8765 | **foxglove_bridge** (default) — native Foxglove WebSocket. Foxglove Studio → Open connection → **Foxglove WebSocket** → `ws://<JETSON_IP>:8765`. |
+| 9090 | Rosbridge WebSocket — fallback only (`FOXGLOVE_BRIDGE=rosbridge scripts/start_foxglove.sh`). |
 
-**Official Rosbridge (recommended for Foxglove):** For proper ROS 2 version detection in Foxglove (no “unable to detect ROS version” warning), install and use the official rosbridge WebSocket server:
+**Install foxglove_bridge (one time, ~5 min build on the Jetson):**
 
 ```bash
-cd ~/ros2_ws && ./src/autocode-bot/scripts/install_rosbridge.sh
+cd ~/ros2_ws && ./src/autocode-bot/scripts/install_foxglove_bridge.sh
 source install/setup.bash
 ```
 
-Then `scripts/start_foxglove.sh` will automatically use the official Rosbridge when available; otherwise it falls back to the custom bridge.
+`scripts/start_foxglove.sh` uses foxglove_bridge when it is built, otherwise falls back to rosbridge, then to the custom bridge. The install script pins foxglove-sdk and rosx_introspection to tested commits and builds rosx_introspection with `BUILD_TESTING=OFF` (with tests on, foxglove_bridge fails to configure on missing `sensor_msgs::` targets).
 
-The script builds rosbridge_suite **2.0.4** from source and applies `scripts/patches/rosbridge_humble_py38.patch`. Upstream Humble rosbridge uses Python 3.10+ syntax; without the patch, Ubuntu 20.04's Python 3.8 makes every message with a header fail to serialize (rosbridge logs `unsupported operand type(s) for |`) and Foxglove shows no data. It also builds **xacro**, which `robot.launch.py` needs to publish the full robot model (camera and IMU frames). Without xacro it silently falls back to a minimal `base_footprint` → `base_link` URDF.
+Why foxglove_bridge instead of rosbridge (measured on the Xavier NX, one client, 15 s):
 
-**Compressed images (recommended with rosbridge):** To avoid high memory use and OOM when viewing cameras in Foxglove, subscribe to **compressed** topics instead of raw: `/camera/left/compressed` and `/camera/right/compressed`. The `compressed_image_node` (launched with the robot) converts raw images to JPEG at 10 Hz; start the robot (or stereo + relay) so these topics are available.
+| | foxglove_bridge | rosbridge |
+|---|---|---|
+| IMU + LiDAR + 2× compressed camera | full rates, **8 %** of one core, 54 MB RSS | full rates, 55 % CPU, 100 MB |
+| + 2× raw 1280×720 camera | raw at 6–7 fps, other topics unaffected, 41 % CPU | **all topics drop to 1 Hz**, 100 % CPU |
+
+**Rosbridge fallback:** `./src/autocode-bot/scripts/install_rosbridge.sh` builds rosbridge_suite **2.0.4** with `scripts/patches/rosbridge_humble_py38.patch` (upstream Humble rosbridge uses Python 3.10+ features and fails on Ubuntu 20.04's Python 3.8). It also builds **xacro**, which `robot.launch.py` needs for the full robot model (camera and IMU frames); without xacro it silently falls back to a minimal `base_footprint` → `base_link` URDF. With rosbridge, subscribe to the **compressed** camera topics only: raw images over rosbridge's JSON saturate the CPU.
 
 **Optional web panel:** Run `scripts/start_telemetry_real.sh` instead to also start the HTML dashboard (8080) and MJPEG server (8081). Panel setup: [telemetry_debug.md](docs/software/telemetry_debug.md#foxglove-studio-accelerometer--cameras).
 
