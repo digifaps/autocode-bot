@@ -1,0 +1,131 @@
+diff --git a/rosapi/src/rosapi/objectutils.py b/rosapi/src/rosapi/objectutils.py
+index 1325551..fb3e65e 100644
+--- a/rosapi/src/rosapi/objectutils.py
++++ b/rosapi/src/rosapi/objectutils.py
+@@ -220,7 +220,7 @@ def _handle_array_information(
+     examples = []
+     slot: str
+     for slot in instance.__slots__:
+-        key = slot.removeprefix("_")
++        key = slot[1:] if slot.startswith("_") else slot
+         if key not in instance._fields_and_field_types:
+             continue
+ 
+diff --git a/rosapi/src/rosapi/params.py b/rosapi/src/rosapi/params.py
+index 871cf3b..d341d6c 100644
+--- a/rosapi/src/rosapi/params.py
++++ b/rosapi/src/rosapi/params.py
+@@ -94,7 +94,7 @@ def init(parent_node_name: str, timeout_sec: float = DEFAULT_PARAM_TIMEOUT_SEC)
+     )
+     _parent_node_name = get_absolute_node_name(parent_node_name)
+ 
+-    if not isinstance(timeout_sec, int | float) or timeout_sec <= 0:
++    if not isinstance(timeout_sec, (int, float)) or timeout_sec <= 0:
+         msg = "Parameter timeout must be a positive number"
+         raise ValueError(msg)
+     _timeout_sec = timeout_sec
+diff --git a/rosbridge_library/src/rosbridge_library/internal/actions.py b/rosbridge_library/src/rosbridge_library/internal/actions.py
+index 13d0d01..6d8dfd2 100644
+--- a/rosbridge_library/src/rosbridge_library/internal/actions.py
++++ b/rosbridge_library/src/rosbridge_library/internal/actions.py
+@@ -137,7 +137,7 @@ def args_to_action_goal_instance(inst: ROSMessage, args: list | dict[str, Any] |
+     """
+     msg = {}
+     if isinstance(args, list):
+-        msg = dict(zip(inst.get_fields_and_field_types().keys(), args, strict=False))
++        msg = dict(zip(inst.get_fields_and_field_types().keys(), args))
+     elif isinstance(args, dict):
+         msg = args
+ 
+diff --git a/rosbridge_library/src/rosbridge_library/internal/message_conversion.py b/rosbridge_library/src/rosbridge_library/internal/message_conversion.py
+index 2611019..6c1989c 100644
+--- a/rosbridge_library/src/rosbridge_library/internal/message_conversion.py
++++ b/rosbridge_library/src/rosbridge_library/internal/message_conversion.py
+@@ -37,7 +37,7 @@ import math
+ import re
+ from base64 import standard_b64decode, standard_b64encode
+ from collections.abc import Sequence
+-from typing import TYPE_CHECKING, Any
++from typing import TYPE_CHECKING, Any, Union
+ 
+ import numpy as np
+ from builtin_interfaces.msg import Duration as DurationMsg
+@@ -75,9 +75,9 @@ type_map = {
+ primitive_types = (bool, int, float, str)
+ list_types = (list, tuple, np.ndarray, array.array)
+ 
+-# Type aliases for static type checking
+-PrimitiveType = bool | int | float | str
+-ListType = list | tuple | np.ndarray | array.array
++# Type aliases for static type checking (Union for Python 3.8)
++PrimitiveType = Union[bool, int, float, str]
++ListType = Union[list, tuple, np.ndarray, array.array]
+ 
+ ros_time_types = ("builtin_interfaces/Time", "builtin_interfaces/Duration")
+ ros_primitive_types = (
+@@ -244,7 +244,7 @@ def _from_inst(
+ 
+     # Check for time or duration
+     if rostype in ros_time_types:
+-        if not isinstance(inst, TimeMsg | DurationMsg):
++        if not isinstance(inst, (TimeMsg, DurationMsg)):
+             err_msg = f"inst is not TimeMsg or DurationMsg, but a {type(inst)}"
+             raise TypeError(err_msg)
+         return {"sec": inst.sec, "nanosec": inst.nanosec}
+@@ -346,10 +346,10 @@ def _to_inst(
+ 
+     # Check the type for time or rostime
+     if rostype in ros_time_types:
+-        if not isinstance(msg, dict | str):
++        if not isinstance(msg, (dict, str)):
+             err_msg = f"msg is not dict or str, but a {type(msg)}"
+             raise TypeError(err_msg)
+-        if inst is not None and not isinstance(inst, TimeMsg | DurationMsg):
++        if inst is not None and not isinstance(inst, (TimeMsg, DurationMsg)):
+             err_msg = f"inst is not Time or Duration message, but a {type(inst)}"
+             raise TypeError(err_msg)
+         return _to_time_inst(msg, rostype, clock, inst)
+diff --git a/rosbridge_library/src/rosbridge_library/internal/services.py b/rosbridge_library/src/rosbridge_library/internal/services.py
+index 4bb1f8d..2ca2e67 100644
+--- a/rosbridge_library/src/rosbridge_library/internal/services.py
++++ b/rosbridge_library/src/rosbridge_library/internal/services.py
+@@ -120,7 +120,7 @@ def args_to_service_request_instance(inst: ROSMessage, args: list | dict[str, An
+     """
+     msg = {}
+     if isinstance(args, list):
+-        msg = dict(zip(inst.get_fields_and_field_types().keys(), args, strict=False))
++        msg = dict(zip(inst.get_fields_and_field_types().keys(), args))
+     elif isinstance(args, dict):
+         msg = args
+ 
+diff --git a/rosbridge_server/scripts/rosbridge_websocket.py b/rosbridge_server/scripts/rosbridge_websocket.py
+index 537754a..532ece3 100755
+--- a/rosbridge_server/scripts/rosbridge_websocket.py
++++ b/rosbridge_server/scripts/rosbridge_websocket.py
+@@ -152,7 +152,7 @@ class RosbridgeWebsocketNode(Node):
+ 
+         # Declare ROS parameters
+         for name, _, default_value, description in SERVER_PARAMETERS + PROTOCOL_PARAMETERS:
+-            assert isinstance(default_value, str | int | float | bool)
++            assert isinstance(default_value, (str, int, float, bool))
+             value = default_value
+             if hasattr(args, name) and getattr(args, name) is not None:
+                 # Override the parameter with the command line argument
+diff --git a/rosbridge_server/src/rosbridge_server/websocket_handler.py b/rosbridge_server/src/rosbridge_server/websocket_handler.py
+index c9161a2..032a14b 100644
+--- a/rosbridge_server/src/rosbridge_server/websocket_handler.py
++++ b/rosbridge_server/src/rosbridge_server/websocket_handler.py
+@@ -38,7 +38,12 @@ import traceback
+ import uuid
+ from collections import deque
+ from functools import partial, wraps
+-from typing import TYPE_CHECKING, ClassVar, ParamSpec, TypeVar
++from typing import TYPE_CHECKING, ClassVar, TypeVar
++
++try:
++    from typing import ParamSpec
++except ImportError:
++    from typing_extensions import ParamSpec
+ 
+ from rclpy.node import Node
+ from rosbridge_library.rosbridge_protocol import RosbridgeProtocol

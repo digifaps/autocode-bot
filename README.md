@@ -108,6 +108,8 @@ source install/setup.bash
 
 Then `scripts/start_foxglove.sh` will automatically use the official Rosbridge when available; otherwise it falls back to the custom bridge.
 
+The script builds rosbridge_suite **2.0.4** from source and applies `scripts/patches/rosbridge_humble_py38.patch`. Upstream Humble rosbridge uses Python 3.10+ syntax; without the patch, Ubuntu 20.04's Python 3.8 makes every message with a header fail to serialize (rosbridge logs `unsupported operand type(s) for |`) and Foxglove shows no data. It also builds **xacro**, which `robot.launch.py` needs to publish the full robot model (camera and IMU frames). Without xacro it silently falls back to a minimal `base_footprint` → `base_link` URDF.
+
 **Compressed images (recommended with rosbridge):** To avoid high memory use and OOM when viewing cameras in Foxglove, subscribe to **compressed** topics instead of raw: `/camera/left/compressed` and `/camera/right/compressed`. The `compressed_image_node` (launched with the robot) converts raw images to JPEG at 10 Hz; start the robot (or stereo + relay) so these topics are available.
 
 **Optional web panel:** Run `scripts/start_telemetry_real.sh` instead to also start the HTML dashboard (8080) and MJPEG server (8081). Panel setup: [telemetry_debug.md](docs/software/telemetry_debug.md#foxglove-studio-accelerometer--cameras).
