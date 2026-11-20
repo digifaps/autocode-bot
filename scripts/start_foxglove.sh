@@ -35,18 +35,14 @@ trap cleanup SIGINT SIGTERM
 
 echo "Workspace: $WS_ROOT | Foxglove bridge only (no web panel)"
 
-# 1) Robot (stereo cameras + IMU)
-ros2 launch robot_bringup robot.launch.py &
+# 1) Robot (stereo cameras + IMU + D500 LiDAR; LiDAR is included by robot.launch.py)
+# LiDAR over USB by default; set LIDAR_USB_PORT=/dev/ttyUSB1 if the adapter enumerates elsewhere
+LIDAR_PORT="${LIDAR_USB_PORT:-/dev/ttyUSB0}"
+ros2 launch robot_bringup robot.launch.py lidar_use_usb:=true lidar_port_name:="$LIDAR_PORT" &
 PIDS+=($!)
 sleep 3
 
-# 2) LiDAR over USB (optional: set LIDAR_USB_PORT=/dev/ttyUSB1 if needed)
-LIDAR_PORT="${LIDAR_USB_PORT:-/dev/ttyUSB0}"
-ros2 launch robot_bringup d500_lidar.launch.py use_usb:=true port_name:="$LIDAR_PORT" &
-PIDS+=($!)
-sleep 2
-
-# 3) Rosbridge WebSocket for Foxglove (port 9090): prefer official rosbridge_suite, else custom bridge
+# 2) Rosbridge WebSocket for Foxglove (port 9090): prefer official rosbridge_suite, else custom bridge
 pkill -f ros2_websocket_bridge 2>/dev/null || true
 pkill -f combined_server 2>/dev/null || true
 pkill -f rosbridge_websocket 2>/dev/null || true

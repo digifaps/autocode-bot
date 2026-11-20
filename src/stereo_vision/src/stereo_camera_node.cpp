@@ -24,8 +24,8 @@ public:
     this->declare_parameter("frame_rate", 30.0);
     this->declare_parameter("image_width", 1280);
     this->declare_parameter("image_height", 720);
-    this->declare_parameter("left_sensor_id", 0);
-    this->declare_parameter("right_sensor_id", 1);
+    this->declare_parameter("left_sensor_id", 1);   // CSI-1 = left (was swapped with 0)
+    this->declare_parameter("right_sensor_id", 0);   // CSI-0 = right
 
     frame_rate_ = this->get_parameter("frame_rate").as_double();
     width_ = this->get_parameter("image_width").as_int();
