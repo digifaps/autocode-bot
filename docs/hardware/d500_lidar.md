@@ -41,7 +41,7 @@ git clone https://github.com/ldrobotSensorTeam/ldlidar_stl_ros2.git
 # lidar_control is in autocode-bot repo
 cd ~/ros2_ws
 source ~/ros2_humble/install/setup.bash
-colcon build --packages-select ldlidar_stl_ros2 lidar_control --symlink-install
+colcon build --packages-select ldlidar_stl_ros2 lidar_control --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 source install/setup.bash
 ```
 

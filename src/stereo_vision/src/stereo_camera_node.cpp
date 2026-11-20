@@ -26,12 +26,17 @@ public:
     this->declare_parameter("image_height", 720);
     this->declare_parameter("left_sensor_id", 1);   // CSI-1 = left (was swapped with 0)
     this->declare_parameter("right_sensor_id", 0);   // CSI-0 = right
+    // Must match the optical frame links in robot_description/urdf/robot.urdf.xacro
+    this->declare_parameter("left_frame_id", "camera_left_optical");
+    this->declare_parameter("right_frame_id", "camera_right_optical");
 
     frame_rate_ = this->get_parameter("frame_rate").as_double();
     width_ = this->get_parameter("image_width").as_int();
     height_ = this->get_parameter("image_height").as_int();
     left_sensor_id_ = this->get_parameter("left_sensor_id").as_int();
     right_sensor_id_ = this->get_parameter("right_sensor_id").as_int();
+    left_frame_id_ = this->get_parameter("left_frame_id").as_string();
+    right_frame_id_ = this->get_parameter("right_frame_id").as_string();
 
     // Create publishers
     left_pub_ = this->create_publisher<sensor_msgs::msg::Image>("camera/left/image_raw", 10);
@@ -113,13 +118,13 @@ private:
     // Convert and publish left image
     auto left_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", left_frame).toImageMsg();
     left_msg->header.stamp = stamp;
-    left_msg->header.frame_id = "left_camera_optical_frame";
+    left_msg->header.frame_id = left_frame_id_;
     left_pub_->publish(*left_msg);
 
     // Convert and publish right image
     auto right_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", right_frame).toImageMsg();
     right_msg->header.stamp = stamp;
-    right_msg->header.frame_id = "right_camera_optical_frame";
+    right_msg->header.frame_id = right_frame_id_;
     right_pub_->publish(*right_msg);
   }
 
@@ -135,6 +140,8 @@ private:
   int height_;
   int left_sensor_id_;
   int right_sensor_id_;
+  std::string left_frame_id_;
+  std::string right_frame_id_;
 };
 
 int main(int argc, char * argv[])
