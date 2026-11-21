@@ -6,6 +6,7 @@
  * sensor and publishes, per camera:
  *   camera/<side>/image_raw   sensor_msgs/Image (bgr8)
  *   camera/<side>/compressed  sensor_msgs/CompressedImage (jpeg, hardware nvjpegenc)
+ *   camera/<side>/camera_info sensor_msgs/CameraInfo, once per published frame, same stamp
  *
  * Each pipeline splits the NVMM frame with a tee. The raw branch converts to BGR on
  * the CPU; the JPEG branch is encoded by the Jetson's NVJPG engine straight from
@@ -19,7 +20,10 @@
 #include <gst/app/gstappsink.h>
 #include <gst/video/video.h>
 
+#include <ament_index_cpp/get_package_share_directory.hpp>
+#include <camera_calibration_parsers/parse.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <sensor_msgs/msg/image.hpp>
 
@@ -30,7 +34,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <chrono>
+#include <deque>
+#include <fstream>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -92,6 +99,13 @@ struct Camera
 
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr raw_pub;
   rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr jpeg_pub;
+  rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr info_pub;
+  sensor_msgs::msg::CameraInfo info;  // from the calibration file, or uncalibrated (zeros)
+
+  // Raw and JPEG branches deliver the same sensor frame on different threads; the first one
+  // computes the stamp and publishes camera_info, the other reuses the stamp by PTS.
+  std::mutex stamp_mutex;
+  std::deque<std::pair<GstClockTime, rclcpp::Time>> stamp_cache;
 
   std::atomic<int64_t> last_frame_ns{0};   // steady clock, updated per sensor frame
   std::atomic<uint64_t> sensor_frames{0};
@@ -122,6 +136,9 @@ public:
     this->declare_parameter("jpeg_quality", 85);
     // Max JPEG frames per second per camera (integer, GStreamer videorate); 0 = every frame
     this->declare_parameter("jpeg_max_rate", 10);
+    // camera_info YAML (camera_calibration_parsers format). Empty = <share>/config/calibration/<side>.yaml
+    this->declare_parameter("left_calibration_file", "");
+    this->declare_parameter("right_calibration_file", "");
 
     frame_rate_ = this->get_parameter("frame_rate").as_double();
     width_ = this->get_parameter("image_width").as_int();
@@ -220,6 +237,34 @@ public:
   }
 
   // Called from GStreamer streaming threads.
+  /// Stamp for this sensor frame, identical for every branch that publishes it. The first
+  /// branch to see a frame also publishes camera_info with that stamp.
+  rclcpp::Time frame_stamp(Camera & cam, GstSample * sample, GstBuffer * buf)
+  {
+    const GstClockTime pts = GST_BUFFER_PTS(buf);
+    if (GST_CLOCK_TIME_IS_VALID(pts)) {
+      std::lock_guard<std::mutex> lock(cam.stamp_mutex);
+      for (const auto & entry : cam.stamp_cache) {
+        if (entry.first == pts) {
+          return entry.second;
+        }
+      }
+    }
+    const rclcpp::Time stamp = capture_stamp(cam, sample, buf);
+    if (GST_CLOCK_TIME_IS_VALID(pts)) {
+      std::lock_guard<std::mutex> lock(cam.stamp_mutex);
+      cam.stamp_cache.emplace_back(pts, stamp);
+      if (cam.stamp_cache.size() > 16) {
+        cam.stamp_cache.pop_front();
+      }
+    }
+    auto info = std::make_unique<sensor_msgs::msg::CameraInfo>(cam.info);
+    info->header.stamp = stamp;
+    info->header.frame_id = cam.frame_id;
+    publish(cam.info_pub, std::move(info));
+    return stamp;
+  }
+
   rclcpp::Time capture_stamp(Camera & cam, GstSample * sample, GstBuffer * buf)
   {
     const rclcpp::Time now = this->now();
@@ -264,6 +309,52 @@ private:
       "camera/" + side + "/image_raw", 10);
     cam.jpeg_pub = this->create_publisher<sensor_msgs::msg::CompressedImage>(
       "camera/" + side + "/compressed", 10);
+    cam.info_pub = this->create_publisher<sensor_msgs::msg::CameraInfo>(
+      "camera/" + side + "/camera_info", 10);
+    load_calibration(cam, this->get_parameter(side + "_calibration_file").as_string());
+  }
+
+  void load_calibration(Camera & cam, std::string path)
+  {
+    cam.info = sensor_msgs::msg::CameraInfo();
+    cam.info.width = static_cast<uint32_t>(width_);
+    cam.info.height = static_cast<uint32_t>(height_);
+    const bool explicit_path = !path.empty();
+    if (!explicit_path) {
+      try {
+        path = ament_index_cpp::get_package_share_directory("stereo_vision") +
+          "/config/calibration/" + cam.side + ".yaml";
+      } catch (const std::exception &) {
+        path.clear();
+      }
+    }
+    if (path.empty() || !std::ifstream(path).good()) {
+      if (explicit_path) {
+        RCLCPP_ERROR(get_logger(), "%s calibration file %s not found; publishing uncalibrated "
+          "camera_info", cam.side.c_str(), path.c_str());
+      } else {
+        RCLCPP_WARN(get_logger(), "No %s camera calibration (%s); publishing uncalibrated "
+          "camera_info. See docs/calibration/stereo_wide_angle.md", cam.side.c_str(),
+          path.c_str());
+      }
+      return;
+    }
+    std::string camera_name;
+    sensor_msgs::msg::CameraInfo info;
+    if (!camera_calibration_parsers::readCalibration(path, camera_name, info)) {
+      RCLCPP_ERROR(get_logger(), "Could not parse %s calibration %s; publishing uncalibrated "
+        "camera_info", cam.side.c_str(), path.c_str());
+      return;
+    }
+    if (info.width != cam.info.width || info.height != cam.info.height) {
+      RCLCPP_WARN(get_logger(), "%s calibration %s is for %ux%u but the camera runs at %ux%u; "
+        "ignoring it (recalibrate at this resolution)", cam.side.c_str(), path.c_str(),
+        info.width, info.height, cam.info.width, cam.info.height);
+      return;
+    }
+    cam.info = info;
+    RCLCPP_INFO(get_logger(), "%s calibration loaded from %s (fx=%.1f fy=%.1f, %s)",
+      cam.side.c_str(), path.c_str(), info.k[0], info.k[4], info.distortion_model.c_str());
   }
 
   std::string pipeline_description(const Camera & cam) const
@@ -477,7 +568,7 @@ private:
       const size_t height = static_cast<size_t>(GST_VIDEO_INFO_HEIGHT(&info));
       if (map.size >= stride * height) {
         auto msg = std::make_unique<sensor_msgs::msg::Image>();
-        msg->header.stamp = cam->node->capture_stamp(*cam, sample, buf);
+        msg->header.stamp = cam->node->frame_stamp(*cam, sample, buf);
         msg->header.frame_id = cam->frame_id;
         msg->height = static_cast<uint32_t>(height);
         msg->width = static_cast<uint32_t>(GST_VIDEO_INFO_WIDTH(&info));
@@ -505,7 +596,7 @@ private:
     GstMapInfo map;
     if (buf && gst_buffer_map(buf, &map, GST_MAP_READ)) {
       auto msg = std::make_unique<sensor_msgs::msg::CompressedImage>();
-      msg->header.stamp = cam->node->capture_stamp(*cam, sample, buf);
+      msg->header.stamp = cam->node->frame_stamp(*cam, sample, buf);
       msg->header.frame_id = cam->frame_id;
       msg->format = "jpeg";
       msg->data.assign(map.data, map.data + map.size);

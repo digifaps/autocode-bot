@@ -18,6 +18,8 @@ find_package(sensor_msgs REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(camera_info_manager REQUIRED)
+find_package(camera_calibration_parsers REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(image_geometry REQUIRED)
 find_package(OpenCV REQUIRED)
 # Camera capture + hardware JPEG (nvarguscamerasrc / nvjpegenc come with L4T)
@@ -45,6 +47,8 @@ add_executable(stereo_camera_node
 ament_target_dependencies(stereo_camera_node
   rclcpp
   sensor_msgs
+  camera_calibration_parsers
+  ament_index_cpp
 )
 # No OpenCV/cv_bridge here: OpenCV's libjpeg in the same process can clash with nvjpegenc.
 target_link_libraries(stereo_camera_node
@@ -71,6 +75,12 @@ target_link_libraries(depth_processor_node
 install(TARGETS
   stereo_camera_node
   depth_processor_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+# Headless stereo calibration tool (preview in Foxglove): ros2 run stereo_vision stereo_calibrator.py
+install(PROGRAMS
+  scripts/stereo_calibrator.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
