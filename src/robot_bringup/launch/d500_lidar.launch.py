@@ -1,5 +1,7 @@
 """Launch file for Waveshare D500 LiDAR (LDROBOT LD19 compatible)."""
 
+import os
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
@@ -7,19 +9,23 @@ from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
+# Stable name from scripts/udev/99-d500-lidar.rules; falls back to the first USB serial port.
+USB_PORT = "/dev/lidar" if os.path.exists("/dev/lidar") else "/dev/ttyUSB0"
+
+
 def generate_launch_description():
     """Generate launch description for D500 LiDAR."""
     use_usb_arg = DeclareLaunchArgument(
         "use_usb",
         default_value="false",
-        description="Use USB adapter (default port /dev/ttyUSB0) instead of onboard UART (/dev/ttyTHS1)",
+        description="Use USB adapter (/dev/lidar, else /dev/ttyUSB0) instead of onboard UART (/dev/ttyTHS1)",
     )
     port_name_arg = DeclareLaunchArgument(
         "port_name",
         default_value=PythonExpression([
-            "'/dev/ttyUSB0' if '", LaunchConfiguration("use_usb"), "' == 'true' else '/dev/ttyTHS1'"
+            "'" + USB_PORT + "' if '", LaunchConfiguration("use_usb"), "' == 'true' else '/dev/ttyTHS1'"
         ]),
-        description="Serial port (default: UART /dev/ttyTHS1, or /dev/ttyUSB0 if use_usb:=true; override with port_name:=/dev/ttyUSB1 etc.)",
+        description="Serial port (default: UART /dev/ttyTHS1, or /dev/lidar (else /dev/ttyUSB0) if use_usb:=true)",
     )
     use_lidar_power_arg = DeclareLaunchArgument(
         "use_lidar_power",
@@ -63,6 +69,10 @@ def generate_launch_description():
             {"angle_crop_min": 135.0},
             {"angle_crop_max": 225.0},
         ],
+        # The driver exits after 3 s without data (e.g. USB adapter dropped); respawn reconnects,
+        # via /dev/lidar even if the adapter comes back as a different ttyUSBx.
+        respawn=True,
+        respawn_delay=2.0,
     )
 
     base_link_to_laser = Node(

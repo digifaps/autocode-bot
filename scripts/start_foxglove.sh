@@ -38,8 +38,9 @@ trap cleanup SIGINT SIGTERM
 echo "Workspace: $WS_ROOT | Foxglove bridge only (no web panel)"
 
 # 1) Robot (stereo cameras + IMU + D500 LiDAR; LiDAR is included by robot.launch.py)
-# LiDAR over USB by default; set LIDAR_USB_PORT=/dev/ttyUSB1 if the adapter enumerates elsewhere
-LIDAR_PORT="${LIDAR_USB_PORT:-/dev/ttyUSB0}"
+# LiDAR over USB: /dev/lidar (udev rule scripts/udev/99-d500-lidar.rules), else /dev/ttyUSB0; override with LIDAR_USB_PORT
+if [ -e /dev/lidar ]; then DEFAULT_LIDAR_PORT=/dev/lidar; else DEFAULT_LIDAR_PORT=/dev/ttyUSB0; fi
+LIDAR_PORT="${LIDAR_USB_PORT:-$DEFAULT_LIDAR_PORT}"
 ros2 launch robot_bringup robot.launch.py lidar_use_usb:=true lidar_port_name:="$LIDAR_PORT" &
 PIDS+=($!)
 sleep 3

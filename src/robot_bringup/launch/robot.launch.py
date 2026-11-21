@@ -134,14 +134,15 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "lidar_use_usb",
             default_value="true",
-            description="Use USB for D500 LiDAR (default /dev/ttyUSB0); false = onboard UART /dev/ttyTHS1",
+            description="Use USB for D500 LiDAR (/dev/lidar, else /dev/ttyUSB0); false = onboard UART /dev/ttyTHS1",
         ),
         DeclareLaunchArgument(
             "lidar_port_name",
             default_value=PythonExpression([
-                "'/dev/ttyUSB0' if '", lidar_use_usb, "' == 'true' else '/dev/ttyTHS1'"
+                "'" + ("/dev/lidar" if os.path.exists("/dev/lidar") else "/dev/ttyUSB0") + "' if '",
+                lidar_use_usb, "' == 'true' else '/dev/ttyTHS1'"
             ]),
-            description="LiDAR serial port (default: /dev/ttyUSB0 if lidar_use_usb else /dev/ttyTHS1)",
+            description="LiDAR serial port (default: /dev/lidar or /dev/ttyUSB0 if lidar_use_usb, else /dev/ttyTHS1)",
         ),
         DeclareLaunchArgument(
             "lidar_use_power",
