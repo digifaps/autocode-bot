@@ -14,6 +14,9 @@ source "$WS/install/setup.bash"
 # (+80 % CPU until restart); Fast-DDS over UDP avoided that but starved everything else when raw
 # images were streamed. Export RMW_IMPLEMENTATION yourself to override.
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
+# Larger UDP messages and socket buffers: raw camera frames (2.7 MB) go through Cyclone over UDP
+# (needs net.core.rmem_max >= 16 MB, set by install_autostart.sh).
+export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://$(cd "$SCRIPT_DIR/.." && pwd)/config/cyclonedds.xml}"
 # Keep ROS log directories from piling up (one per launch)
 find "$HOME/.ros/log" -mindepth 1 -maxdepth 1 -mtime +14 -exec rm -rf {} + 2>/dev/null || true
 exec ros2 launch robot_bringup bringup.launch.py "$@"
