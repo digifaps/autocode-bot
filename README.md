@@ -29,7 +29,6 @@ This project implements an autonomous differential-drive robot running ROS2 on N
 ```
 autocode-bot/
 ├── config/                 # Configuration files
-│   ├── camera_calibration/ # Stereo calibration data
 │   ├── navigation/         # Nav2 parameters
 │   └── robot_description/  # URDF parameters
 ├── docs/                   # Documentation
