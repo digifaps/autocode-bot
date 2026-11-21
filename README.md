@@ -36,6 +36,7 @@ autocode-bot/
 └── src/                    # ROS2 packages
     ├── robot_bringup/      # Launch files
     ├── motor_driver/       # Motor control & IMU node
+    ├── robot_odometry/     # IMU + laser odometry fusion, scan resampler (C++)
     ├── stereo_vision/      # Camera and depth processing
     ├── robot_description/  # URDF and meshes
     └── telemetry/          # Custom WebSocket bridge + optional web viewer (Foxglove uses foxglove_bridge)
@@ -173,7 +174,7 @@ ros2 launch robot_bringup mapping.launch.py
 
 This starts: robot state publisher, D500 LiDAR (`/scan`), IMU (`/imu/data_raw`), laser odometry, `imu_odom_node` and slam_toolbox. The map is published on `/map`; TF chain is `map` → `odom` (slam_toolbox) → `base_footprint` (imu_odom_node) → `base_link` → `base_laser`.
 
-**Odometry** (no wheel encoders yet): `scan_resampler` turns `/scan` into `/scan_fixed` (fixed 500 beams centred on straight ahead, which rf2o needs; the D500 sends 501–505 points per turn), [rf2o_laser_odometry](https://github.com/MAPIRlab/rf2o_laser_odometry) estimates the forward speed from consecutive scans (`/odom_rf2o`), and `imu_odom_node` integrates it along the IMU heading into `/odom` and `odom` → `base_footprint`. The heading uses the gyro projected onto the measured gravity direction, because the IMU on the stereo board is mounted upright. Keep the robot still for the first 5 s (gyro bias and gravity direction). `use_laser_odom:=false` falls back to heading only. Build rf2o once:
+**Odometry** (no wheel encoders yet; C++ nodes in `robot_odometry`): `scan_resampler` turns `/scan` into `/scan_fixed` (fixed 500 beams centred on straight ahead, which rf2o needs; the D500 sends 501–505 points per turn), [rf2o_laser_odometry](https://github.com/MAPIRlab/rf2o_laser_odometry) estimates the forward speed from consecutive scans (`/odom_rf2o`), and `imu_odom_node` integrates it along the IMU heading into `/odom` and `odom` → `base_footprint`. The heading uses the gyro projected onto the measured gravity direction, because the IMU on the stereo board is mounted upright. Keep the robot still for the first 5 s (gyro bias and gravity direction). `use_laser_odom:=false` falls back to heading only. Build rf2o once:
 
 ```bash
 cd ~/ros2_ws/src && git clone -b ros2 https://github.com/MAPIRlab/rf2o_laser_odometry.git

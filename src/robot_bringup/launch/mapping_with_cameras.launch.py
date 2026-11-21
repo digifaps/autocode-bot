@@ -72,7 +72,7 @@ def generate_launch_description():
 
     # Laser odometry: /scan -> fixed-size /scan_fixed -> rf2o -> /odom_rf2o (forward speed)
     scan_resampler = Node(
-        package="motor_driver",
+        package="robot_odometry",
         executable="scan_resampler",
         name="scan_resampler",
         parameters=[{"use_sim_time": use_sim_time}],
@@ -94,7 +94,7 @@ def generate_launch_description():
 
     # odom -> base_footprint and /odom: IMU heading + rf2o forward speed
     imu_odom_node = Node(
-        package="motor_driver",
+        package="robot_odometry",
         executable="imu_odom_node",
         name="imu_odom_node",
         parameters=[
