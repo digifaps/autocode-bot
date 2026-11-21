@@ -2,11 +2,12 @@
 """
 IMU-based odom frame publisher.
 
-Publishes the transform odom -> base_link using the IMU:
+Publishes the transform odom -> base_footprint using the IMU:
 - Orientation: integrated from gyro (yaw only) for 2D mapping.
 - Position: fixed at origin (no wheel encoders); slam_toolbox corrects pose via map->odom.
 
-Use with slam_toolbox for basic LiDAR + IMU mapping. TF chain: map -> odom (slam_toolbox) -> base_link (this node) -> base_laser.
+Use with slam_toolbox for basic LiDAR + IMU mapping. TF chain: map -> odom (slam_toolbox) -> base_footprint (this node) -> base_link (URDF) -> base_laser.
+base_footprint, not base_link: robot_state_publisher already gives base_link its parent (base_footprint).
 """
 
 import math
@@ -19,13 +20,13 @@ from tf2_ros import TransformBroadcaster
 
 
 class ImuOdomNode(Node):
-    """Publishes odom -> base_link from IMU gyro (yaw integration)."""
+    """Publishes odom -> base_footprint from IMU gyro (yaw integration)."""
 
     def __init__(self):
         super().__init__("imu_odom_node")
 
         self.declare_parameter("odom_frame", "odom")
-        self.declare_parameter("base_frame", "base_link")
+        self.declare_parameter("base_frame", "base_footprint")
         self.declare_parameter("publish_rate", 50.0)
 
         self.odom_frame = self.get_parameter("odom_frame").value

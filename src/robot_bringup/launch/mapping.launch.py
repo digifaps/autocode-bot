@@ -4,11 +4,11 @@ Brings up:
 - Robot state publisher (URDF TF: base_footprint -> base_link -> ...)
 - D500 LiDAR (/scan, base_link -> base_laser)
 - IMU node (/imu/data_raw)
-- IMU odom node (odom -> base_link from gyro yaw)
+- IMU odom node (odom -> base_footprint from gyro yaw)
 - slam_toolbox (map, map -> odom)
 
 Requires: sudo apt install ros-humble-slam-toolbox
-TF chain: map -> odom (slam_toolbox) -> base_link (imu_odom_node) -> base_laser (lidar static).
+TF chain: map -> odom (slam_toolbox) -> base_footprint (imu_odom_node) -> base_link (URDF) -> base_laser (lidar static).
 """
 
 import os
