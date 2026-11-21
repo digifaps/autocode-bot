@@ -38,6 +38,9 @@ def generate_launch_description():
         package="rf2o_laser_odometry", executable="rf2o_laser_odometry_node",
         name="rf2o_laser_odometry",
         parameters=[os.path.join(bringup_share, "config", "rf2o_params.yaml")],
+        # rf2o logs "Waiting for laser_scans" on every loop without a new scan (10-40 per second
+        # on /rosout and in the journal); robot_health reports a real laser odometry outage.
+        ros_arguments=["--log-level", "rf2o_laser_odometry:=error"],
         output="screen", **RESPAWN,
     )
     imu_odom = Node(
@@ -50,8 +53,11 @@ def generate_launch_description():
         parameters=[{
             "port": foxglove_port,
             "address": "0.0.0.0",
-            "capabilities": ["clientPublish", "parameters", "parametersSubscribe", "services",
-                             "connectionGraph", "assets"],
+            # No "parameters"/"parametersSubscribe"/"connectionGraph": the bridge polled every
+            # node's parameters and the ROS graph on its main thread (with timeouts on nodes that
+            # do not answer), which saturated it; a slow bridge then makes every reliable
+            # publisher it subscribes to (TF, /odom, /rosout) burn CPU on resends.
+            "capabilities": ["clientPublish", "services", "assets"],
         }],
         output="screen", **RESPAWN,
     )
