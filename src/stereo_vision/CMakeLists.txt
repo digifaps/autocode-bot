@@ -19,6 +19,7 @@ find_package(image_transport REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(camera_info_manager REQUIRED)
 find_package(camera_calibration_parsers REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(image_geometry REQUIRED)
 find_package(OpenCV REQUIRED)
@@ -49,6 +50,7 @@ ament_target_dependencies(stereo_camera_node
   sensor_msgs
   camera_calibration_parsers
   ament_index_cpp
+  diagnostic_msgs
 )
 # No OpenCV/cv_bridge here: OpenCV's libjpeg in the same process can clash with nvjpegenc.
 target_link_libraries(stereo_camera_node

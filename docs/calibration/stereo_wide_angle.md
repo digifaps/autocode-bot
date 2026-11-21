@@ -18,10 +18,7 @@ The robot uses a Waveshare IMX219-83 stereo camera with **wide-angle lenses** (8
 
 ## Procedure
 
-1. **Start the robot stack** on the Jetson (cameras must be running):
-   ```bash
-   cd ~/ros2_ws && ./src/autocode-bot/scripts/start_foxglove.sh
-   ```
+1. **The robot stack must be running** (it starts at boot as the `autocode-bot` service; check with `systemctl status autocode-bot`).
 2. **Start the calibrator** in a second terminal, with your board's inner corners and measured square size:
    ```bash
    source ~/ros2_ws/install/setup.bash

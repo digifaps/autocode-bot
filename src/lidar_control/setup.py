@@ -13,7 +13,7 @@ setup(
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="autocode-bot",
-    maintainer_email="todo@todo.com",
+    maintainer_email="digifaps@users.noreply.github.com",
     description="Power and scan-speed control for D500 LiDAR (GPIO power enable)",
     license="GPL-3.0-only",
     tests_require=["pytest"],

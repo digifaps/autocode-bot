@@ -49,7 +49,7 @@ source install/setup.bash
 
 ### 2. Serial port
 
-Onboard UART (`/dev/ttyTHS1`) works as-is. For the USB adapter, install the udev rule once:
+Onboard UART (`/dev/ttyTHS1`) works as-is. For the USB adapter, the udev rule is installed by `scripts/install_autostart.sh`; by hand:
 
 ```bash
 sudo cp ~/ros2_ws/src/autocode-bot/scripts/udev/99-d500-lidar.rules /etc/udev/rules.d/
@@ -57,7 +57,7 @@ sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=tt
 ls -l /dev/lidar   # -> ttyUSB0 (or whichever ttyUSBx the CP2102 got)
 ```
 
-It makes USB serial ports read/write without `dialout` and creates `/dev/lidar` for the CP2102 adapter (10c4:ea60). The launch files and start scripts use `/dev/lidar` when it exists, else `/dev/ttyUSB0`.
+It makes USB serial ports read/write without `dialout` and creates `/dev/lidar` for the CP2102 adapter (10c4:ea60). The launch files use `/dev/lidar` when the rule is installed (even if the LiDAR is plugged in after boot), else `/dev/ttyUSB0`. Foxglove's Diagnostics panel shows **LiDAR (D500): not connected** while `/dev/lidar` is missing.
 
 **If the USB adapter drops out** (seen on the robot: `cp210x ttyUSB0: ... urb stopped: -32`, then a USB disconnect in `dmesg`), the patched driver exits after 3 s without data and launch respawns it every ~2 s until the adapter is back. After a replug the adapter often gets a different `ttyUSBx`; `/dev/lidar` follows it, so `/scan` resumes on its own. Repeated drop-outs point at the cable, connector or the LiDAR's 5 V supply.
 

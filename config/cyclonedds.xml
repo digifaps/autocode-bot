@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Cyclone DDS settings for the robot stack (exported as CYCLONEDDS_URI by scripts/robot_bringup.sh).
+     Raw camera frames are 2.7 MB and travel over UDP (no shared memory): with the defaults
+     (14 kB messages, ~200 kB socket buffer) image_raw drops to ~10 Hz and costs more CPU.
+     The 16 MB buffer needs net.core.rmem_max >= 16 MB (scripts/install_autostart.sh sets it);
+     without it Cyclone still starts, with a smaller buffer. -->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain Id="any">
+    <General>
+      <MaxMessageSize>65500B</MaxMessageSize>
+    </General>
+    <Internal>
+      <SocketReceiveBufferSize max="16MB"/>
+      <Watermarks>
+        <WhcHigh>8MB</WhcHigh>
+      </Watermarks>
+    </Internal>
+  </Domain>
+</CycloneDDS>
