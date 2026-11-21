@@ -5,16 +5,21 @@
  * Once per second publishes OK / WARN / ERROR for:
  * - LiDAR: /scan rate; "not connected" when the USB device (/dev/lidar) is missing
  * - Odometry: /odom and laser odometry (/odom_rf2o) rates
- * - Jetson: temperatures, memory, disk, load
+ * - Jetson: temperatures, memory, disk, load, CPU usage per core
  * - Network: Ethernet link + address, Wi-Fi access point mode + clients
  * - Status watchdog: nodes that report their own status (IMU, cameras, mapping) are flagged as
  *   ERROR under their own name when their status stops arriving (node not running).
+ *
+ * Also publishes /system/cpu_usage (std_msgs/Float32MultiArray, once per second): data[i] = load of
+ * core i in percent (from /proc/stat; -1 for an offline core), last element = all cores.
+ * Plot it in Foxglove with message paths /system/cpu_usage.data[0] ... .data[5].
  */
 
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
+#include <std_msgs/msg/float32_multi_array.hpp>
 
 #include <arpa/inet.h>
 #include <ifaddrs.h>
@@ -143,6 +148,8 @@ public:
       "/diagnostics", 50,
       [this](diagnostic_msgs::msg::DiagnosticArray::ConstSharedPtr m) {on_diag(*m);});
     diag_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics", 10);
+    cpu_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>("/system/cpu_usage", 10);
+    sample_cpu();  // baseline for the first delta
     started_ = last_ = std::chrono::steady_clock::now();
     timer_ = create_wall_timer(1s, [this] {publish();});
     RCLCPP_INFO(get_logger(), "robot_health: publishing /diagnostics at 1 Hz");
@@ -176,6 +183,7 @@ private:
     const double dt = std::chrono::duration<double>(now - last_).count();
     last_ = now;
     const double uptime = std::chrono::duration<double>(now - started_).count();
+    publish_cpu();
     diagnostic_msgs::msg::DiagnosticArray arr;
     arr.header.stamp = this->now();
     arr.status.push_back(lidar(scan_.rate(dt), uptime));
@@ -304,8 +312,17 @@ private:
       }
     }
     st.values.push_back(kv("load_1min", read_file("/proc/loadavg").substr(0, 4)));
+    std::string cores;
+    for (size_t i = 0; i + 1 < cpu_usage_.size(); ++i) {
+      cores += (i ? " " : "") + (cpu_usage_[i] < 0 ? std::string("off") : fmt("%.0f", cpu_usage_[i]));
+    }
+    if (!cpu_usage_.empty()) {
+      st.values.push_back(kv("cpu_per_core_%", cores));
+      st.values.push_back(kv("cpu_total_%", fmt("%.0f", cpu_usage_.back())));
+    }
     if (problems.empty()) {
-      st.message = fmt("%.0f C", tmax) + ", " + (avail_kb >= 0 ? fmt("%.1f GB RAM free", avail_kb / 1048576.0) : "");
+      st.message = fmt("%.0f C", tmax) + ", " + (avail_kb >= 0 ? fmt("%.1f GB RAM free", avail_kb / 1048576.0) : "") +
+        (cpu_usage_.empty() ? "" : fmt(", CPU %.0f%%", cpu_usage_.back()) + " (" + cores + ")");
     } else {
       st.message = problems[0];
       for (size_t i = 1; i < problems.size(); ++i) {
@@ -313,6 +330,93 @@ private:
       }
     }
     return st;
+  }
+
+  struct CpuTimes
+  {
+    unsigned long long busy = 0, total = 0;
+  };
+
+  /// Per-core and total busy/total jiffies from /proc/stat (index n = all cores).
+  std::vector<CpuTimes> read_cpu_times(int & ncores)
+  {
+    std::vector<CpuTimes> t;
+    std::ifstream f("/proc/stat");
+    std::string line;
+    CpuTimes all;
+    std::map<int, CpuTimes> per;
+    while (std::getline(f, line)) {
+      if (line.compare(0, 3, "cpu") != 0) {
+        break;
+      }
+      std::istringstream ss(line);
+      std::string name;
+      unsigned long long v[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+      ss >> name;
+      for (auto & x : v) {
+        ss >> x;
+      }
+      // user nice system idle iowait irq softirq steal
+      CpuTimes c;
+      c.total = v[0] + v[1] + v[2] + v[3] + v[4] + v[5] + v[6] + v[7];
+      c.busy = c.total - v[3] - v[4];
+      if (name == "cpu") {
+        all = c;
+      } else {
+        per[std::atoi(name.c_str() + 3)] = c;
+      }
+    }
+    // Offline cores are missing from /proc/stat: size by the highest possible core id
+    ncores = 0;
+    for (int i = 0; i < 64; ++i) {
+      std::ifstream exists("/sys/devices/system/cpu/cpu" + std::to_string(i) + "/online");
+      if (!exists.good() && i > 0 && per.count(i) == 0) {
+        break;
+      }
+      ncores = i + 1;
+    }
+    t.resize(ncores + 1);
+    for (const auto & [i, c] : per) {
+      if (i < ncores) {
+        t[i] = c;
+      }
+    }
+    t[ncores] = all;
+    online_.assign(ncores, false);
+    for (const auto & [i, c] : per) {
+      if (i < ncores) {
+        online_[i] = true;
+      }
+    }
+    return t;
+  }
+
+  void sample_cpu()
+  {
+    int n = 0;
+    prev_cpu_ = read_cpu_times(n);
+  }
+
+  void publish_cpu()
+  {
+    int n = 0;
+    const auto now = read_cpu_times(n);
+    cpu_usage_.assign(n + 1, -1.0f);
+    for (int i = 0; i <= n && i < static_cast<int>(prev_cpu_.size()); ++i) {
+      const bool core_online = i == n || online_[i];
+      const unsigned long long dt = now[i].total - prev_cpu_[i].total;
+      if (core_online && dt > 0 && now[i].total >= prev_cpu_[i].total) {
+        cpu_usage_[i] = 100.0f * static_cast<float>(now[i].busy - prev_cpu_[i].busy) / dt;
+      }
+    }
+    prev_cpu_ = now;
+    std_msgs::msg::Float32MultiArray msg;
+    msg.layout.dim.resize(1);
+    msg.layout.dim[0].label = "cpu0..cpu" + std::to_string(n - 1) + ",all";
+    msg.layout.dim[0].size = n + 1;
+    msg.layout.dim[0].stride = n + 1;
+    msg.data = cpu_usage_;
+    cpu_pub_->publish(msg);
   }
 
   DS network()
@@ -373,6 +477,10 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr rf2o_sub_;
   rclcpp::Subscription<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_sub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr cpu_pub_;
+  std::vector<CpuTimes> prev_cpu_;
+  std::vector<float> cpu_usage_;
+  std::vector<bool> online_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

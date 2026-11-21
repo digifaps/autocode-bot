@@ -125,6 +125,7 @@ Foxglove → Open connection → **Foxglove WebSocket** → `ws://<robot-ip>:876
 - **Start mapping / Stop mapping / Save map** buttons (slam_toolbox only runs while mapping)
 - both **camera images**, an **odometry** plot (x, y, speed)
 - **Diagnostics**: OK / WARN / ERROR per sensor, odometry, Jetson (temperature, memory, disk), network (Ethernet, access point clients), mapping
+- **CPU per core** (%), from `/system/cpu_usage` (published by `robot_health`: `data[0..5]` per core, `data[6]` all cores)
 - **Log**: warnings and errors from all nodes
 
 Saved maps go to `~/maps/map_<date_time>.{pgm,yaml}` (map_server format) plus slam_toolbox's pose graph (`.posegraph`, `.data`) to continue mapping later.

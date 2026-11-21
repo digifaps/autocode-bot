@@ -8,23 +8,48 @@
         "distance": 8,
         "phi": 50,
         "thetaOffset": 90,
-        "targetOffset": [0, 0, 0],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
         "fovy": 45,
         "near": 0.5,
         "far": 5000
       },
       "scene": {
-        "transforms": { "showLabel": false, "axisScale": 0.6 }
+        "transforms": {
+          "showLabel": false,
+          "axisScale": 0.6
+        }
       },
       "transforms": {},
       "topics": {
-        "/map": { "visible": true },
-        "/scan": { "visible": true, "colorField": "range", "colorMode": "colormap", "colorMap": "turbo", "pointSize": 4 },
-        "/robot_description": { "visible": true },
-        "/odom": { "visible": true }
+        "/map": {
+          "visible": true
+        },
+        "/scan": {
+          "visible": true,
+          "colorField": "range",
+          "colorMode": "colormap",
+          "colorMap": "turbo",
+          "pointSize": 4
+        },
+        "/robot_description": {
+          "visible": true
+        },
+        "/odom": {
+          "visible": true
+        }
       },
       "layers": {
-        "grid": { "visible": true, "layerId": "foxglove.Grid", "size": 10, "divisions": 10, "frameId": "odom" }
+        "grid": {
+          "visible": true,
+          "layerId": "foxglove.Grid",
+          "size": 10,
+          "divisions": 10,
+          "frameId": "odom"
+        }
       }
     },
     "CallService!mapstart": {
@@ -55,10 +80,14 @@
       "buttonColor": "#1565c0"
     },
     "Image!left": {
-      "imageMode": { "imageTopic": "/camera/left/compressed" }
+      "imageMode": {
+        "imageTopic": "/camera/left/compressed"
+      }
     },
     "Image!right": {
-      "imageMode": { "imageTopic": "/camera/right/compressed" }
+      "imageMode": {
+        "imageTopic": "/camera/right/compressed"
+      }
     },
     "DiagnosticSummary!health": {
       "topicToRender": "/diagnostics",
@@ -69,9 +98,24 @@
     "Plot!odom": {
       "title": "Odometry",
       "paths": [
-        { "value": "/odom.pose.pose.position.x", "enabled": true, "timestampMethod": "receiveTime", "label": "x (m)" },
-        { "value": "/odom.pose.pose.position.y", "enabled": true, "timestampMethod": "receiveTime", "label": "y (m)" },
-        { "value": "/odom.twist.twist.linear.x", "enabled": true, "timestampMethod": "receiveTime", "label": "speed (m/s)" }
+        {
+          "value": "/odom.pose.pose.position.x",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "x (m)"
+        },
+        {
+          "value": "/odom.pose.pose.position.y",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "y (m)"
+        },
+        {
+          "value": "/odom.twist.twist.linear.x",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "speed (m/s)"
+        }
       ],
       "showLegend": true,
       "followingViewWidth": 60
@@ -80,11 +124,64 @@
       "topicToRender": "/rosout",
       "minLogLevel": 3,
       "searchTerms": []
+    },
+    "Plot!cpu": {
+      "title": "CPU per core (%)",
+      "paths": [
+        {
+          "value": "/system/cpu_usage.data[0]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "core 0"
+        },
+        {
+          "value": "/system/cpu_usage.data[1]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "core 1"
+        },
+        {
+          "value": "/system/cpu_usage.data[2]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "core 2"
+        },
+        {
+          "value": "/system/cpu_usage.data[3]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "core 3"
+        },
+        {
+          "value": "/system/cpu_usage.data[4]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "core 4"
+        },
+        {
+          "value": "/system/cpu_usage.data[5]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "core 5"
+        },
+        {
+          "value": "/system/cpu_usage.data[6]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "all"
+        }
+      ],
+      "minYValue": 0,
+      "maxYValue": 100,
+      "showLegend": true,
+      "followingViewWidth": 60
     }
   },
   "globalVariables": {},
   "userNodes": {},
-  "playbackConfig": { "speed": 1 },
+  "playbackConfig": {
+    "speed": 1
+  },
   "layout": {
     "first": {
       "first": "3D!robot",
@@ -108,7 +205,12 @@
         "direction": "row"
       },
       "second": {
-        "first": "DiagnosticSummary!health",
+        "first": {
+          "first": "DiagnosticSummary!health",
+          "second": "Plot!cpu",
+          "direction": "row",
+          "splitPercentage": 55
+        },
         "second": {
           "first": "Plot!odom",
           "second": "RosOut!log",
@@ -116,10 +218,10 @@
           "splitPercentage": 50
         },
         "direction": "column",
-        "splitPercentage": 50
+        "splitPercentage": 55
       },
       "direction": "column",
-      "splitPercentage": 35
+      "splitPercentage": 30
     },
     "direction": "row",
     "splitPercentage": 55

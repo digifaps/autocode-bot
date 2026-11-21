@@ -13,6 +13,7 @@
   <depend>sensor_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>diagnostic_msgs</depend>
+  <depend>std_msgs</depend>
 
   <!-- mapping_manager.py -->
   <exec_depend>rclpy</exec_depend>
