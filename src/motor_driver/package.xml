@@ -4,7 +4,7 @@
   <name>motor_driver</name>
   <version>0.1.0</version>
   <description>Motor driver node for differential drive control using RioRand controllers</description>
-  <maintainer email="todo@todo.com">autocode-bot</maintainer>
+  <maintainer email="digifaps@users.noreply.github.com">autocode-bot</maintainer>
   <license>GPL-3.0-only</license>
 
   <buildtool_depend>ament_python</buildtool_depend>

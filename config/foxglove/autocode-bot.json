@@ -27,11 +27,44 @@
         "grid": { "visible": true, "layerId": "foxglove.Grid", "size": 10, "divisions": 10, "frameId": "odom" }
       }
     },
+    "CallService!mapstart": {
+      "serviceName": "/mapping/start",
+      "requestPayload": "{}",
+      "layout": "vertical",
+      "editingMode": false,
+      "buttonText": "Start mapping",
+      "buttonTooltip": "Start slam_toolbox; the map appears in the 3D view",
+      "buttonColor": "#2e7d32"
+    },
+    "CallService!mapstop": {
+      "serviceName": "/mapping/stop",
+      "requestPayload": "{}",
+      "layout": "vertical",
+      "editingMode": false,
+      "buttonText": "Stop mapping",
+      "buttonTooltip": "Stop slam_toolbox (save first if you want to keep the map)",
+      "buttonColor": "#c62828"
+    },
+    "CallService!mapsave": {
+      "serviceName": "/mapping/save",
+      "requestPayload": "{}",
+      "layout": "vertical",
+      "editingMode": false,
+      "buttonText": "Save map",
+      "buttonTooltip": "Write the map to ~/maps on the robot",
+      "buttonColor": "#1565c0"
+    },
     "Image!left": {
       "imageMode": { "imageTopic": "/camera/left/compressed" }
     },
     "Image!right": {
       "imageMode": { "imageTopic": "/camera/right/compressed" }
+    },
+    "DiagnosticSummary!health": {
+      "topicToRender": "/diagnostics",
+      "pinnedIds": [],
+      "hardwareIdFilter": "",
+      "sortByLevel": true
     },
     "Plot!odom": {
       "title": "Odometry",
@@ -43,26 +76,31 @@
       "showLegend": true,
       "followingViewWidth": 60
     },
-    "Plot!imu": {
-      "title": "IMU gyro (rad/s)",
-      "paths": [
-        { "value": "/imu/data_raw.angular_velocity.x", "enabled": true, "timestampMethod": "receiveTime" },
-        { "value": "/imu/data_raw.angular_velocity.y", "enabled": true, "timestampMethod": "receiveTime" },
-        { "value": "/imu/data_raw.angular_velocity.z", "enabled": true, "timestampMethod": "receiveTime" }
-      ],
-      "showLegend": true,
-      "followingViewWidth": 30
-    },
-    "RawMessages!odom": {
-      "topicPath": "/odom",
-      "expansion": "all"
+    "RosOut!log": {
+      "topicToRender": "/rosout",
+      "minLogLevel": 3,
+      "searchTerms": []
     }
   },
   "globalVariables": {},
   "userNodes": {},
   "playbackConfig": { "speed": 1 },
   "layout": {
-    "first": "3D!robot",
+    "first": {
+      "first": "3D!robot",
+      "second": {
+        "first": "CallService!mapstart",
+        "second": {
+          "first": "CallService!mapstop",
+          "second": "CallService!mapsave",
+          "direction": "row"
+        },
+        "direction": "row",
+        "splitPercentage": 33
+      },
+      "direction": "column",
+      "splitPercentage": 85
+    },
     "second": {
       "first": {
         "first": "Image!left",
@@ -70,17 +108,18 @@
         "direction": "row"
       },
       "second": {
-        "first": "Plot!odom",
+        "first": "DiagnosticSummary!health",
         "second": {
-          "first": "Plot!imu",
-          "second": "RawMessages!odom",
+          "first": "Plot!odom",
+          "second": "RosOut!log",
           "direction": "row",
-          "splitPercentage": 60
+          "splitPercentage": 50
         },
-        "direction": "column"
+        "direction": "column",
+        "splitPercentage": 50
       },
       "direction": "column",
-      "splitPercentage": 40
+      "splitPercentage": 35
     },
     "direction": "row",
     "splitPercentage": 55

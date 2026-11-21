@@ -65,7 +65,7 @@ def generate_launch_description():
     )
 
     imu_node = Node(
-        package="motor_driver",
+        package="imu_driver",
         executable="imu_node",
         name="imu_node",
         parameters=[

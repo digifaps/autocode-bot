@@ -4,7 +4,7 @@
   <name>robot_bringup</name>
   <version>0.1.0</version>
   <description>Launch files for autocode-bot</description>
-  <maintainer email="todo@todo.com">autocode-bot</maintainer>
+  <maintainer email="digifaps@users.noreply.github.com">autocode-bot</maintainer>
   <license>GPL-3.0-only</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
@@ -12,13 +12,14 @@
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
-  <exec_depend>motor_driver</exec_depend>
+  <exec_depend>imu_driver</exec_depend>
   <exec_depend>xacro</exec_depend>
   <exec_depend>stereo_vision</exec_depend>
-  <exec_depend>image_relay</exec_depend>
   <exec_depend>robot_description</exec_depend>
   <exec_depend>ldlidar_stl_ros2</exec_depend>
   <exec_depend>rf2o_laser_odometry</exec_depend>
+  <exec_depend>robot_supervisor</exec_depend>
+  <exec_depend>foxglove_bridge</exec_depend>
   <exec_depend>robot_odometry</exec_depend>
   <exec_depend>lidar_control</exec_depend>
   <exec_depend>tf2_ros</exec_depend>

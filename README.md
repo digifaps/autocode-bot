@@ -4,197 +4,153 @@ An autonomous wheeled robot with stereo vision, built entirely with AI-assisted 
 
 ## Overview
 
-This project implements an autonomous differential-drive robot running ROS2 on NVIDIA Jetson Xavier NX. The robot uses stereo cameras for depth perception and visual SLAM, enabling autonomous navigation and obstacle avoidance.
+This project implements an autonomous differential-drive robot running ROS2 on NVIDIA Jetson Xavier NX. The robot uses stereo cameras for depth perception and a 2D LiDAR for mapping, working towards autonomous navigation and obstacle avoidance.
 
-**Key highlight:** All code in this repository is AI-generated using Cursor with Claude, demonstrating the potential of AI-assisted robotics development.
+**Key highlight:** All code in this repository is AI-generated (Cursor and Claude), demonstrating the potential of AI-assisted robotics development.
 
 ## Hardware
 
-- **Compute:** NVIDIA Jetson Xavier NX (JetPack 5.1.3)
-- **Vision:** Waveshare IMX219-83 stereo camera + ICM20948 IMU
-- **LiDAR:** Waveshare D500 (LDROBOT LD19 compatible, 360° 2D)
-- **Motors:** 2x hoverboard BLDC motors with RioRand 350W controllers
+- **Compute:** NVIDIA Jetson Xavier NX (JetPack 5.1.4, L4T 35.6)
+- **Vision:** Waveshare IMX219-83 stereo camera + ICM20948 IMU (on the camera board)
+- **LiDAR:** Waveshare D500 (LDROBOT LD19 compatible, 360° 2D) on a CP2102 USB adapter
+- **Motors:** 2x hoverboard BLDC motors with RioRand 350W controllers (driver not implemented yet)
 - **Power:** 36V battery system (2x hoverboard packs in parallel)
 - **Drivetrain:** Differential drive
 
 ## Software Stack
 
-- Ubuntu 20.04
-- ROS2 Humble (built from source)
-- CUDA-accelerated stereo vision
-- Nav2 navigation stack
+- Ubuntu 20.04, ROS2 Humble (built from source in `~/ros2_humble`)
+- foxglove_bridge for remote viewing in Foxglove
+- slam_toolbox (2D mapping on demand), rf2o_laser_odometry
+- Nav2 (planned)
 
 ## Repository Structure
 
 ```
 autocode-bot/
-├── config/                 # Configuration files
+├── config/
 │   ├── foxglove/           # Foxglove layout (import from file)
-│   ├── navigation/         # Nav2 parameters
+│   ├── navigation/         # Nav2 parameters (planned)
 │   └── robot_description/  # URDF parameters
-├── docs/                   # Documentation
+├── docs/                   # Hardware and calibration notes
+├── scripts/                # Setup, boot service, network, udev rule, patches
 └── src/                    # ROS2 packages
-    ├── robot_bringup/      # Launch files
-    ├── motor_driver/       # Motor control & IMU node
+    ├── robot_bringup/      # Launch files (bringup.launch.py runs at boot) and configs
+    ├── imu_driver/         # ICM20948 + AK09916 IMU driver (C++)
+    ├── stereo_vision/      # Stereo cameras (hardware JPEG), calibration tool, depth (stub)
     ├── robot_odometry/     # IMU + laser odometry fusion, scan resampler (C++)
-    ├── stereo_vision/      # Camera and depth processing
-    ├── robot_description/  # URDF and meshes
-    └── telemetry/          # Custom WebSocket bridge + optional web viewer (Foxglove uses foxglove_bridge)
+    ├── robot_supervisor/   # Health on /diagnostics, on-demand mapping
+    ├── lidar_control/      # Optional LiDAR power switching via GPIO
+    ├── motor_driver/       # Motor driver (stub, not launched yet)
+    └── robot_description/  # URDF
 ```
 
-## Quick Start
+## Setup (once, on the Jetson)
 
-### 1. Python dependencies (IMU node)
+### 1. Third-party packages in the workspace
 
-The IMU node requires the Pimoroni `icm20948` library (Waveshare-compatible). On the Jetson:
+These are built from source next to this repo in `~/ros2_ws/src` (ROS2 Humble has no binaries for Ubuntu 20.04):
 
 ```bash
-pip3 install icm20948 smbus2
+cd ~/ros2_ws/src
+git clone --depth 1 -b 2.1.1 https://github.com/ros/xacro.git                 # full robot model
+git clone https://github.com/ldrobotSensorTeam/ldlidar_stl_ros2.git            # D500 LiDAR driver
+git -C ldlidar_stl_ros2 apply ../autocode-bot/scripts/patches/ldlidar_stl_ros2_reconnect.patch
+git clone -b ros2 https://github.com/MAPIRlab/rf2o_laser_odometry.git          # laser odometry
+git clone https://github.com/SteveMacenski/slam_toolbox.git -b humble          # mapping
+cd ~/ros2_ws && ./src/autocode-bot/scripts/install_foxglove_bridge.sh          # foxglove_bridge (~5 min)
 ```
 
-See [docs/hardware/imu_i2c.md](docs/hardware/imu_i2c.md) for I2C bus detection and troubleshooting.
+slam_toolbox needs `sudo apt install -y libboost-system-dev libboost-filesystem-dev libboost-thread-dev libboost-serialization-dev libsuitesparse-dev libceres-dev`, and is built with `--allow-overriding slam_toolbox --cmake-args -DBUILD_RVIZ_PLUGIN=OFF -DBoost_NO_BOOST_CMAKE=ON`. The foxglove_bridge script pins foxglove-sdk and rosx_introspection to tested commits (rosx_introspection must be built with `BUILD_TESTING=OFF`).
 
-### 2. Build the Workspace
+### 2. Build the workspace
 
 ```bash
 source ~/ros2_humble/install/setup.bash
 cd ~/ros2_ws
 colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
-source install/setup.bash
 ```
 
-Always pass `-DCMAKE_BUILD_TYPE=Release`: colcon's default is an empty build type, which compiles C++ packages such as the LiDAR driver, cv_bridge and image_geometry without optimization. `stereo_vision` (and slam_toolbox) default to Release on their own; most third-party packages do not.
+Always pass `-DCMAKE_BUILD_TYPE=Release`: colcon's default is an empty build type, which compiles third-party C++ packages without optimization.
 
-### 3. Start for Foxglove (IMU, cameras, LiDAR)
-
-On the Jetson, from the workspace root:
+### 3. Network: Ethernet + the robot's own Wi-Fi
 
 ```bash
-source install/setup.bash
-scripts/start_foxglove.sh
+sudo ~/ros2_ws/src/autocode-bot/scripts/setup_network.sh <wifi-password> [ssid]   # default ssid: autocode-bot
 ```
 
-Then in **Foxglove Studio**: Open connection → **Foxglove WebSocket** → `ws://<JETSON_IP>:8765`. Use panels for `/imu/data_raw`, `/scan`, `/camera/left/compressed`, `/camera/right/compressed` (raw `image_raw` topics also work). One-time setup: see [Foxglove](#foxglove-recommended) below.
+- **Ethernet (`eth0`)** is the normal network: DHCP from your router, internet, SSH.
+- **Wi-Fi (`wlan0`)** is always the robot's access point (2.4 GHz channel 6), robot at **10.42.0.1**, DHCP for clients. AP clients get internet through Ethernet when it is plugged in.
+- The password is stored only in NetworkManager on the Jetson. Details: [docs/hardware/jetson_wifi_ap.md](docs/hardware/jetson_wifi_ap.md).
 
-**Ready-made layout:** import [`config/foxglove/autocode-bot.json`](config/foxglove/autocode-bot.json) in Foxglove (layout menu → **Import from file…**). It has a 3D view following the robot (map, LiDAR scan, robot model, TF, grid), both camera images, an odometry plot (x, y, speed), a gyro plot and the raw `/odom` message. `/map` and `/odom` only exist while `mapping.launch.py` runs.
-
-**Cameras:** `stereo_camera_node` publishes both topic types per camera from one GStreamer pipeline:
-
-| Topic | Type | Rate | How |
-|---|---|---|---|
-| `/camera/{left,right}/compressed` | `CompressedImage` (JPEG) | 10 Hz (`jpeg_max_rate`, `jpeg_quality` 85) | Jetson hardware JPEG encoder (`nvjpegenc`) |
-| `/camera/{left,right}/image_raw` | `Image` (bgr8, 1280×720) | 20 Hz (`frame_rate`) | `nvvidconv` + CPU BGR conversion |
-
-Each branch only runs while its topic has subscribers, so with no client connected the cameras cost about 30 % of one core in total. Launch respawns the node if a camera stalls or `nvargus-daemon` restarts (Argus cannot recover inside a running process); on Ctrl+C the camera source occasionally needs up to 6 s to stop. The old Python relay (`image_relay`, `compressed_image.launch.py`) is kept only as a fallback; start the camera node with `publish_compressed:=false` if you use it.
-
-### 4. Start LiDAR (Waveshare D500)
-
-**Onboard UART (default):** Connect D500 to Jetson 40-pin (Pin 8=TX, 10=RX, GND). Default port is `/dev/ttyTHS1`.
+### 4. Start the robot at boot
 
 ```bash
-# Launch D500 LiDAR (publishes /scan)
-ros2 launch robot_bringup d500_lidar.launch.py
+sudo ~/ros2_ws/src/autocode-bot/scripts/install_autostart.sh
 ```
 
-**Optional power control (GPIO):** Switch LiDAR 5 V on/off via a GPIO pin (e.g. BOARD 12, with MOSFET):
+This installs the LiDAR udev rule (`/dev/lidar`) and the systemd service **autocode-bot**, which runs `robot_bringup/bringup.launch.py` at every boot, restarts it if it stops, and logs to the journal:
 
 ```bash
-ros2 launch robot_bringup d500_lidar.launch.py use_lidar_power:=true power_enable_gpio_pin:=12
-# Then: ros2 service call /lidar/set_power std_srvs/srv/SetBool "{data: true/false}"
+journalctl -u autocode-bot -f                 # logs
+sudo systemctl restart autocode-bot           # after a rebuild
+sudo systemctl stop autocode-bot              # to run things by hand (scripts/start_foxglove.sh)
+sudo scripts/install_autostart.sh --remove    # no autostart
 ```
 
-**USB adapter:** Use `use_usb:=true` (default `/dev/ttyUSB0`) or `port_name:=/dev/ttyUSB0`. USB and I2C work as-is; no extra setup required.
+## What runs at boot
 
-See [docs/hardware/d500_lidar.md](docs/hardware/d500_lidar.md) for wiring, scan-speed notes, and troubleshooting.
+`bringup.launch.py` starts:
 
-### Foxglove (recommended)
-
-| Port | Description |
-|------|-------------|
-| 8765 | **foxglove_bridge** (default) — native Foxglove WebSocket. Foxglove Studio → Open connection → **Foxglove WebSocket** → `ws://<JETSON_IP>:8765`. |
-| 9090 | Rosbridge WebSocket — fallback only (`FOXGLOVE_BRIDGE=rosbridge scripts/start_foxglove.sh`). |
-
-**Install foxglove_bridge (one time, ~5 min build on the Jetson):**
-
-```bash
-cd ~/ros2_ws && ./src/autocode-bot/scripts/install_foxglove_bridge.sh
-source install/setup.bash
-```
-
-`scripts/start_foxglove.sh` uses foxglove_bridge when it is built, otherwise falls back to rosbridge, then to the custom bridge. The install script pins foxglove-sdk and rosx_introspection to tested commits and builds rosx_introspection with `BUILD_TESTING=OFF` (with tests on, foxglove_bridge fails to configure on missing `sensor_msgs::` targets).
-
-Why foxglove_bridge instead of rosbridge (measured on the Xavier NX, one client, 15 s):
-
-| | foxglove_bridge | rosbridge |
+| Part | Nodes | Topics |
 |---|---|---|
-| IMU + LiDAR + 2× compressed camera | full rates, **8 %** of one core, 54 MB RSS | full rates, 55 % CPU, 100 MB |
-| + 2× raw 1280×720 camera | raw at ~19 fps, other topics unaffected, 95 % CPU | **all topics drop to 1 Hz**, 100 % CPU |
+| Robot model | robot_state_publisher, LiDAR static TF | `/tf`, `/tf_static`, `/robot_description` |
+| IMU | `imu_driver/imu_node` (C++) | `/imu/data_raw` 100 Hz, `/imu/mag` |
+| Cameras | `stereo_vision/stereo_camera_node` | `/camera/{left,right}/compressed` (JPEG 10 Hz), `image_raw` (20 Hz), `camera_info` |
+| LiDAR | `ldlidar_stl_ros2_node` | `/scan` 10 Hz |
+| Odometry | `scan_resampler`, `rf2o_laser_odometry`, `imu_odom_node` | `/odom`, TF `odom` → `base_footprint` |
+| Foxglove | `foxglove_bridge` | WebSocket on port 8765 |
+| Health | `robot_supervisor/health_node`, plus each sensor's own status | `/diagnostics` |
+| Mapping | `robot_supervisor/mapping_manager.py` | services `/mapping/start`, `/mapping/stop`, `/mapping/save` |
 
-**Rosbridge fallback:** `./src/autocode-bot/scripts/install_rosbridge.sh` builds rosbridge_suite **2.0.4** with `scripts/patches/rosbridge_humble_py38.patch` (upstream Humble rosbridge uses Python 3.10+ features and fails on Ubuntu 20.04's Python 3.8). It also builds **xacro**, which `robot.launch.py` needs for the full robot model (camera and IMU frames); without xacro it silently falls back to a minimal `base_footprint` → `base_link` URDF. With rosbridge, subscribe to the **compressed** camera topics only: raw images over rosbridge's JSON saturate the CPU.
+**Missing sensors don't stop the robot.** Every node respawns on its own, and a missing or failing sensor is reported on `/diagnostics` (shown in Foxglove), e.g. *LiDAR: not connected (/dev/lidar missing)*, *IMU: ICM20948 not found on /dev/i2c-8*, *Camera left: not detected*. The IMU driver retries a missing chip every 2 s; the LiDAR driver is restarted until the USB adapter is back; a camera missing at startup is reported and the other camera keeps running (CSI cameras are only detected when `nvargus-daemon` starts, so reconnecting one needs a restart).
 
-**Optional web panel:** Run `scripts/start_telemetry_real.sh` instead to also start the HTML dashboard (8080) and MJPEG server (8081). Panel setup: [telemetry_debug.md](docs/software/telemetry_debug.md#foxglove-studio-accelerometer--cameras).
+**Keep the robot still for the first 5 seconds** after start: the IMU measures its gyro bias and the gravity direction then.
 
-### Jetson WiFi: Client vs Access Point
+## Foxglove
 
-To use the Jetson as a WiFi hotspot (connect your laptop/phone directly to it), run on the Jetson:
+Foxglove → Open connection → **Foxglove WebSocket** → `ws://<robot-ip>:8765` (on the robot's Wi-Fi: `ws://10.42.0.1:8765`). Then import the layout [`config/foxglove/autocode-bot.json`](config/foxglove/autocode-bot.json) (layout menu → **Import from file…**):
 
-- **AP mode:** `sudo scripts/jetson_wifi_ap.sh` — then connect to WiFi **JetsonAP** (default password: `jetsonap123`), Jetson at **10.42.0.1**
-- **Back to client (zander):** `sudo scripts/jetson_wifi_client.sh`
+- **3D view** following the robot: map, LiDAR scan, robot model, TF, grid
+- **Start mapping / Stop mapping / Save map** buttons (slam_toolbox only runs while mapping)
+- both **camera images**, an **odometry** plot (x, y, speed)
+- **Diagnostics**: OK / WARN / ERROR per sensor, odometry, Jetson (temperature, memory, disk), network (Ethernet, access point clients), mapping
+- **Log**: warnings and errors from all nodes
 
-See [docs/hardware/jetson_wifi_ap.md](docs/hardware/jetson_wifi_ap.md) for details and custom SSID/password.
+Saved maps go to `~/maps/map_<date_time>.{pgm,yaml}` (map_server format) plus slam_toolbox's pose graph (`.posegraph`, `.data`) to continue mapping later.
 
-### Basic mapping (LiDAR + IMU)
+**Cameras:** each camera has one GStreamer pipeline split into a hardware JPEG branch (`nvjpegenc`, 10 Hz, quality 85) and a raw bgr8 branch (20 Hz); each branch only runs while its topic has subscribers. `camera_info` comes from `stereo_vision/config/calibration/{left,right}.yaml`; see [docs/calibration/stereo_wide_angle.md](docs/calibration/stereo_wide_angle.md) for the calibration procedure.
 
-Use the D500 LiDAR and IMU with **slam_toolbox** for 2D mapping. Install or build slam_toolbox (once), then run the mapping launch.
+## Mapping and odometry
 
-**If you use ROS2 from the system** (e.g. `/opt/ros/humble`):
+There are no wheel encoders yet. Odometry combines the IMU heading with laser odometry:
 
-```bash
-sudo apt install ros-humble-slam-toolbox
-```
+- `scan_resampler` turns `/scan` into `/scan_fixed` (fixed 500 beams centred on straight ahead, which rf2o needs; the D500 sends 501–505 points per turn).
+- [rf2o_laser_odometry](https://github.com/MAPIRlab/rf2o_laser_odometry) estimates the forward speed from consecutive scans (`/odom_rf2o`).
+- `imu_odom_node` integrates it along the IMU heading into `/odom` and `odom` → `base_footprint`. The heading uses the gyro projected onto the measured gravity direction, because the IMU on the stereo board is mounted upright. Implausible laser speeds (scan-match glitches) are rejected.
 
-**If you built ROS2 from source** (e.g. in `~/ros2_humble`), build slam_toolbox from source in your workspace. Install system deps first, then build without the RViz plugin (avoids needing the full rviz2 stack):
+TF chain while mapping: `map` → `odom` (slam_toolbox) → `base_footprint` (imu_odom_node) → `base_link` → `base_laser`.
 
-```bash
-# System deps (Boost, SuiteSparse, Ceres)
-sudo apt install -y libboost-system-dev libboost-filesystem-dev libboost-thread-dev \
-  libboost-serialization-dev libsuitesparse-dev libceres-dev
-
-cd ~/ros2_ws/src
-git clone https://github.com/SteveMacenski/slam_toolbox.git -b humble
-cd ~/ros2_ws
-source ~/ros2_humble/install/setup.bash   # or your ROS2 install path
-colcon build --packages-select slam_toolbox --symlink-install --allow-overriding slam_toolbox \
-  --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_RVIZ_PLUGIN=OFF -DBoost_NO_BOOST_CMAKE=ON
-```
-
-Then run mapping (from workspace root, after `source install/setup.bash`):
-
-```bash
-ros2 launch robot_bringup mapping.launch.py
-```
-
-This starts: robot state publisher, D500 LiDAR (`/scan`), IMU (`/imu/data_raw`), laser odometry, `imu_odom_node` and slam_toolbox. The map is published on `/map`; TF chain is `map` → `odom` (slam_toolbox) → `base_footprint` (imu_odom_node) → `base_link` → `base_laser`.
-
-**Odometry** (no wheel encoders yet; C++ nodes in `robot_odometry`): `scan_resampler` turns `/scan` into `/scan_fixed` (fixed 500 beams centred on straight ahead, which rf2o needs; the D500 sends 501–505 points per turn), [rf2o_laser_odometry](https://github.com/MAPIRlab/rf2o_laser_odometry) estimates the forward speed from consecutive scans (`/odom_rf2o`), and `imu_odom_node` integrates it along the IMU heading into `/odom` and `odom` → `base_footprint`. The heading uses the gyro projected onto the measured gravity direction, because the IMU on the stereo board is mounted upright. Keep the robot still for the first 5 s (gyro bias and gravity direction). `use_laser_odom:=false` falls back to heading only. Build rf2o once:
-
-```bash
-cd ~/ros2_ws/src && git clone -b ros2 https://github.com/MAPIRlab/rf2o_laser_odometry.git
-cd ~/ros2_ws && colcon build --symlink-install --packages-select rf2o_laser_odometry --cmake-args -DCMAKE_BUILD_TYPE=Release
-``` View the map in Foxglove (Map panel, topic `/map`) or RViz. Move the robot (by hand or with teleop) to build the map; save it later with `ros2 run nav2_map_server map_saver_cli` when using Nav2.
+Mapping without the boot stack (e.g. for testing) also works: `ros2 launch robot_bringup mapping.launch.py` (LiDAR, IMU, odometry, slam_toolbox always on) or `mapping_with_cameras.launch.py`.
 
 ## LiDAR (Waveshare D500)
 
-The D500 is a 360° 2D LiDAR (LDROBOT LD19 compatible) that publishes `sensor_msgs/LaserScan` on `/scan`. It is used for 2D SLAM and Nav2 obstacle avoidance.
+- **Topic:** `/scan`, frame `base_laser` (static transform from `base_link`)
+- **Connection:** USB adapter at `/dev/lidar` (udev rule), or onboard UART `/dev/ttyTHS1`
+- **Driver:** [ldlidar_stl_ros2](https://github.com/ldrobotSensorTeam/ldlidar_stl_ros2) with `scripts/patches/ldlidar_stl_ros2_reconnect.patch` (exits when the adapter drops out so it is restarted; fixes an abort on shutdown)
+- **Power control:** optional GPIO via `lidar_control`; service `lidar/set_power` (SetBool)
 
-- **Topic:** `/scan` (`sensor_msgs/msg/LaserScan`)
-- **TF frame:** `base_laser` (static transform from `base_link`)
-- **Connection:** Onboard UART `/dev/ttyTHS1` (40-pin: 8=TX, 10=RX) or USB-to-UART
-- **Power control:** Optional GPIO via `lidar_control` package; service `lidar/set_power` (SetBool)
-- **Scan speed:** Parameter in `lidar_control_node`; runtime change may require driver/protocol support
-- **Driver:** [ldlidar_stl_ros2](https://github.com/ldrobotSensorTeam/ldlidar_stl_ros2) (clone into `ros2_ws/src` and build)
-
-Full setup, wiring, and troubleshooting: [docs/hardware/d500_lidar.md](docs/hardware/d500_lidar.md).
+Wiring and troubleshooting: [docs/hardware/d500_lidar.md](docs/hardware/d500_lidar.md). IMU details: [docs/hardware/imu_i2c.md](docs/hardware/imu_i2c.md).
 
 ## Development Phases
 
@@ -211,7 +167,7 @@ Full setup, wiring, and troubleshooting: [docs/hardware/d500_lidar.md](docs/hard
 
 ### Testing
 - Test on hardware before committing
-- Verify camera feeds and IMU data are working
+- Check `/diagnostics` in Foxglove: every sensor should be OK
 - Check for memory leaks on long-running nodes
 
 ### Commit Messages
@@ -223,33 +179,33 @@ Full setup, wiring, and troubleshooting: [docs/hardware/d500_lidar.md](docs/hard
 1. Create package in `src/` directory
 2. Add dependencies to `package.xml`
 3. Update CMakeLists.txt or setup.py
-4. Build and test locally before pushing
+4. Add it to `robot_bringup/launch/bringup.launch.py` with `respawn=True`, and report its health on `/diagnostics`
+5. Build and test on the robot before pushing
 
 ## Troubleshooting
 
+### Something is red in Foxglove's Diagnostics panel
+The message says what is wrong (not connected, no data, low rate). Logs: `journalctl -u autocode-bot -f`.
+
 ### Cameras not detected
 ```bash
-ls /dev/video*  # Should show video0 and video1
+ls /dev/video*                    # Should show video0 and video1
+sudo systemctl restart nvargus-daemon && sudo systemctl restart autocode-bot
 ```
 
 ### ROS2 commands not found
 ```bash
-source ~/ros2_humble/install/setup.bash
 source ~/ros2_ws/install/setup.bash
-```
-
-### Port already in use
-```bash
-pkill -f video_server
-pkill -f combined_server
 ```
 
 ### LiDAR not publishing
 ```bash
-ls -l /dev/ttyUSB*   # Check device exists
-ros2 launch robot_bringup d500_lidar.launch.py use_usb:=true
-# or: port_name:=/dev/ttyUSB0
+ls -l /dev/lidar /dev/ttyUSB*     # adapter present?
+dmesg | grep -i cp210x            # USB drop-outs
 ```
+
+### Can't reach the robot over Wi-Fi
+Connect to the robot's Wi-Fi (default SSID `autocode-bot`) and use `10.42.0.1`. Check on the robot: `nmcli connection show --active` should list `autocode-bot-ap`.
 
 ## License
 

@@ -1,60 +1,47 @@
-# Jetson WiFi: Client vs Access Point
+# Robot networking: Ethernet + Wi-Fi access point
 
-Switch the Jetson between **client mode** (connected to your WiFi, e.g. zander) and **Access Point mode** (Jetson acts as a hotspot you connect to).
+| Interface | Role | Address |
+|---|---|---|
+| `eth0` | Normal networking: DHCP from your router, internet, SSH | from your router (e.g. 192.168.8.174) |
+| `wlan0` | Always the robot's Wi-Fi access point | **10.42.0.1**, DHCP for clients (10.42.0.x) |
 
-## Requirements
+Both are NetworkManager connections that come up at boot. Connect a laptop or phone to the robot's Wi-Fi and use:
 
-- NetworkManager: `sudo apt install network-manager`
-- WiFi interface `wlan0` (typical on Jetson Xavier NX)
+- Foxglove: `ws://10.42.0.1:8765`
+- SSH: `ssh <user>@10.42.0.1`
 
-## Scripts (run on the Jetson)
+When Ethernet is plugged in, clients on the access point also get internet through it (NetworkManager `shared` mode). The robot stack (`autocode-bot` service) does not depend on either network: it starts without a cable and with no Wi-Fi client connected.
 
-From the repo root (e.g. `~/ros2_ws/src/autocode-bot` or wherever you cloned):
-
-### 1. Switch to Access Point (Jetson as hotspot)
-
-```bash
-sudo scripts/jetson_wifi_ap.sh
-```
-
-- Creates/activates connection **JetsonAP** (SSID: `JetsonAP`, default password: `jetsonap123`).
-- Jetson gets IP **10.42.0.1**; clients get DHCP from 10.42.0.x.
-- Connect your laptop/phone to WiFi **JetsonAP**, then:
-  - SSH: `ssh fabrice@10.42.0.1`
-  - Web viewer: http://10.42.0.1:8080/web_viewer.html
-
-**Custom SSID/password (before running):**
+## Setup (once)
 
 ```bash
-sudo JETSON_AP_SSID=MyRobot JETSON_AP_PASSWORD=mypass scripts/jetson_wifi_ap.sh
+sudo ~/ros2_ws/src/autocode-bot/scripts/setup_network.sh <wifi-password> [ssid]
 ```
 
-### 2. Switch back to Client (connect to zander)
+- **SSID** defaults to `autocode-bot`; the **password** must be 8–63 characters (WPA2). It is stored only in NetworkManager on the robot (`/etc/NetworkManager/system-connections/`), never in this repo.
+- Creates the connection `autocode-bot-ap` (autoconnect, highest priority, 2.4 GHz channel 6, power saving off) and removes older access point profiles.
+- Keeps other Wi-Fi client profiles (e.g. your home network) but turns their autoconnect off, so `wlan0` stays an access point after every boot.
+- Ethernet: makes sure the wired connection uses DHCP, autoconnects and carries the default route.
+
+**Band:** the Wi-Fi country is not set on this Jetson (regulatory domain "world"), which only allows an access point on 2.4 GHz. For 5 GHz set the country first (e.g. `sudo iw reg set BE`, persistently in `/etc/default/crda`), then run the script with `AP_BAND=a AP_CHANNEL=36`.
+
+Change the password later by running the script again with the new one.
+
+## Temporarily use Wi-Fi as a client
 
 ```bash
-sudo scripts/jetson_wifi_client.sh
+sudo ~/ros2_ws/src/autocode-bot/scripts/jetson_wifi_client.sh [connection-name]   # e.g. your home Wi-Fi
+sudo nmcli connection up autocode-bot-ap                                           # back to access point
 ```
 
-- Stops the AP and connects to **zander** (or the connection name you set).
-- Jetson gets an IP from your router (e.g. 192.168.8.110); use that for SSH/web.
+The access point also comes back on the next boot.
 
-**Different WiFi (e.g. other SSID):**
+## Checks
 
 ```bash
-sudo JETSON_CLIENT_CONNECTION="YourSSID" scripts/jetson_wifi_client.sh
+nmcli connection show --active      # autocode-bot-ap on wlan0, wired connection on eth0
+iw dev wlan0 info                   # type AP, ssid, channel
+iw dev wlan0 station dump           # connected clients
 ```
 
-(List connections: `nmcli connection show`)
-
-## Summary
-
-| Mode   | Command                    | Jetson IP (typical) | You connect to   |
-|--------|----------------------------|----------------------|------------------|
-| Client | `sudo scripts/jetson_wifi_client.sh` | 192.168.8.110 (wlan0) | Your WiFi (zander) |
-| AP     | `sudo scripts/jetson_wifi_ap.sh`     | 10.42.0.1            | WiFi "JetsonAP"  |
-
-## Troubleshooting
-
-- **"WiFi is disabled" / no wlan0:** Enable in BIOS or `rfkill unblock wifi`.
-- **AP fails to start:** Some drivers don’t support AP mode; try a USB WiFi dongle that supports AP, or use **create_ap** (hostapd + dnsmasq) as fallback.
-- **No internet when connected to JetsonAP:** AP mode is local-only by default; for internet you’d add NAT/forwarding from eth0 (optional, not in these scripts).
+Foxglove's Diagnostics panel shows the same under **Network** (access point and number of clients, Ethernet address).

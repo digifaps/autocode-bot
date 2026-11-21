@@ -13,14 +13,13 @@ setup(
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="autocode-bot",
-    maintainer_email="todo@todo.com",
+    maintainer_email="digifaps@users.noreply.github.com",
     description="Motor driver node for differential drive control using RioRand controllers",
     license="GPL-3.0-only",
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
             "motor_driver_node = motor_driver.motor_driver_node:main",
-            "imu_node = motor_driver.imu_node:main",
         ],
     },
 )

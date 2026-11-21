@@ -1,40 +1,20 @@
 #!/bin/bash
-# Switch Jetson wlan0 back to client mode and connect to your WiFi (e.g. zander).
-# Run with: sudo ./jetson_wifi_client.sh
-# To switch to AP mode: sudo ./jetson_wifi_ap.sh
-
+# Temporarily use wlan0 as a Wi-Fi client (e.g. your home network) instead of the robot's access
+# point. The access point comes back on the next boot, or now with:
+#   sudo nmcli connection up autocode-bot-ap
+# Usage: sudo scripts/jetson_wifi_client.sh [connection-name]   (list: nmcli connection show)
 set -e
-
-# Connection name to bring up (nmcli connection show). Default: zander (your SSID)
-CLIENT_CONNECTION="${JETSON_CLIENT_CONNECTION:-zander}"
-
-if [ "$(id -u)" -ne 0 ]; then
-  echo "Run with sudo: sudo $0"
-  exit 1
-fi
-
-if ! command -v nmcli &>/dev/null; then
-  echo "NetworkManager (nmcli) not found."
-  exit 1
-fi
-
-echo "[1/2] Stopping Access Point (JetsonAP)..."
-nmcli connection down JetsonAP 2>/dev/null || true
-nmcli device disconnect wlan0 2>/dev/null || true
+CLIENT_CONNECTION="${1:-${JETSON_CLIENT_CONNECTION:-zander}}"
+if [ "$(id -u)" -ne 0 ]; then echo "Run with sudo: sudo $0 [connection-name]"; exit 1; fi
+command -v nmcli >/dev/null || { echo "NetworkManager (nmcli) not found."; exit 1; }
+echo "[1/2] Stopping the access point..."
+nmcli connection down autocode-bot-ap 2>/dev/null || true
 sleep 2
-
 echo "[2/2] Connecting to '$CLIENT_CONNECTION'..."
 if ! nmcli connection up "$CLIENT_CONNECTION"; then
   echo "Failed to connect to '$CLIENT_CONNECTION'. Available connections:"
   nmcli connection show
-  echo "Set another: sudo JETSON_CLIENT_CONNECTION='YourSSID' $0"
   exit 1
 fi
-
 JETSON_IP=$(ip -4 -br addr show wlan0 | awk '{print $3}' | cut -d/ -f1)
-echo ""
-echo "--- Client mode ---"
-echo "  Connected to: $CLIENT_CONNECTION"
-echo "  Jetson (wlan0): $JETSON_IP"
-echo "  SSH: ssh fabrice@$JETSON_IP"
-echo ""
+echo "Client mode: '$CLIENT_CONNECTION', wlan0 $JETSON_IP. Access point returns on reboot."

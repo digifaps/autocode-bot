@@ -7,6 +7,11 @@
  *   camera/<side>/image_raw   sensor_msgs/Image (bgr8)
  *   camera/<side>/compressed  sensor_msgs/CompressedImage (jpeg, hardware nvjpegenc)
  *   camera/<side>/camera_info sensor_msgs/CameraInfo, once per published frame, same stamp
+ *   /diagnostics              one status per camera, once per second (frame rate, branches)
+ *
+ * A camera that never delivers a frame (not connected, wrong sensor-id) is reported as not
+ * detected and the other camera keeps running. A camera that stalls after streaming makes the
+ * node exit so launch can respawn it (Argus cannot recover in-process).
  *
  * Each pipeline splits the NVMM frame with a tee. The raw branch converts to BGR on
  * the CPU; the JPEG branch is encoded by the Jetson's NVJPG engine straight from
@@ -22,6 +27,7 @@
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <camera_calibration_parsers/parse.hpp>
+#include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
@@ -109,6 +115,11 @@ struct Camera
 
   std::atomic<int64_t> last_frame_ns{0};   // steady clock, updated per sensor frame
   std::atomic<uint64_t> sensor_frames{0};
+  std::atomic<uint64_t> diag_frames{0};
+  std::atomic<bool> ever_streamed{false};
+  bool missing = false;          // never delivered a frame; pipeline stopped, not retried
+  std::string missing_reason;
+  bool calibrated = false;
   std::atomic<uint64_t> raw_frames{0};
   std::atomic<uint64_t> jpeg_frames{0};
   std::atomic<uint64_t> jpeg_bytes{0};
@@ -166,6 +177,7 @@ public:
     }
 
     // Subscriber gating, bus errors and stall watchdog (exit on failure; launch respawns)
+    diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics", 10);
     timer_ = this->create_wall_timer(500ms, std::bind(&StereoCameraNode::housekeeping, this));
 
     RCLCPP_INFO(get_logger(),
@@ -353,6 +365,7 @@ private:
       return;
     }
     cam.info = info;
+    cam.calibrated = true;
     RCLCPP_INFO(get_logger(), "%s calibration loaded from %s (fx=%.1f fy=%.1f, %s)",
       cam.side.c_str(), path.c_str(), info.k[0], info.k[4], info.distortion_model.c_str());
   }
@@ -443,6 +456,69 @@ private:
     std::_Exit(2);
   }
 
+  /// The camera never delivered a frame: CSI cameras are found when nvargus-daemon starts, so
+  /// there is nothing to retry. Stop its pipeline and keep the other camera running.
+  void mark_missing(Camera & cam, const std::string & reason)
+  {
+    cam.missing = true;
+    cam.missing_reason = reason;
+    RCLCPP_ERROR(get_logger(), "%s camera (sensor-id %d) not detected: %s. The other camera keeps "
+      "running; check the CSI cable and restart the robot stack.", cam.side.c_str(),
+      cam.sensor_id, reason.c_str());
+    if (cam.pipeline) {
+      gst_element_set_state(cam.pipeline, GST_STATE_NULL);
+      gst_object_unref(cam.raw_valve);
+      gst_object_unref(cam.jpeg_valve);
+      gst_object_unref(cam.pipeline);
+      cam.pipeline = nullptr;
+    }
+  }
+
+  void publish_diagnostics(int64_t now)
+  {
+    using DS = diagnostic_msgs::msg::DiagnosticStatus;
+    const double dt = last_diag_ns_ ? (now - last_diag_ns_) * 1e-9 : 1.0;
+    last_diag_ns_ = now;
+    diagnostic_msgs::msg::DiagnosticArray arr;
+    arr.header.stamp = this->now();
+    auto kv = [](const std::string & k, const std::string & v) {
+        diagnostic_msgs::msg::KeyValue p;
+        p.key = k;
+        p.value = v;
+        return p;
+      };
+    for (auto & cam_ptr : cams_) {
+      Camera & cam = *cam_ptr;
+      const double fps = cam.diag_frames.exchange(0) / dt;
+      DS st;
+      st.name = "Camera " + cam.side;
+      st.hardware_id = "CSI sensor-id " + std::to_string(cam.sensor_id);
+      char b[200];
+      if (cam.missing) {
+        st.level = DS::ERROR;
+        st.message = "not detected (" + cam.missing_reason + "): check the CSI cable, then restart";
+      } else if (!cam.ever_streamed) {
+        st.level = DS::WARN;
+        st.message = "starting";
+      } else if (fps < 0.8 * frame_rate_) {
+        st.level = DS::WARN;
+        std::snprintf(b, sizeof(b), "low frame rate: %.1f fps (expected %.0f)", fps, frame_rate_);
+        st.message = b;
+      } else {
+        st.level = DS::OK;
+        std::snprintf(b, sizeof(b), "%.1f fps", fps);
+        st.message = b;
+      }
+      std::snprintf(b, sizeof(b), "%.1f", fps);
+      st.values.push_back(kv("sensor_fps", b));
+      st.values.push_back(kv("raw_branch", cam.raw_open ? "on" : "off (no subscribers)"));
+      st.values.push_back(kv("jpeg_branch", cam.jpeg_open ? "on" : "off (no subscribers)"));
+      st.values.push_back(kv("calibration", cam.calibrated ? "loaded" : "none (uncalibrated)"));
+      arr.status.push_back(st);
+    }
+    diag_pub_->publish(arr);
+  }
+
   void update_valves(Camera & cam, bool force = false)
   {
     const size_t raw_subs = cam.raw_pub->get_subscription_count();
@@ -472,8 +548,12 @@ private:
     const int64_t now = steady_ns();
     for (auto & cam_ptr : cams_) {
       Camera & cam = *cam_ptr;
+      if (cam.missing) {
+        continue;
+      }
       if (!cam.pipeline) {
-        fail(cam, "pipeline not running");
+        mark_missing(cam, "pipeline could not be created");
+        continue;
       }
       // Bus: errors and EOS (e.g. nvargus-daemon failures)
       GstBus * bus = gst_element_get_bus(cam.pipeline);
@@ -506,16 +586,23 @@ private:
         gst_message_unref(msg);
       }
       gst_object_unref(bus);
+      const int64_t last = cam.last_frame_ns.load();
+      const int64_t since = now - (last ? last : cam.started_ns);
+      if (!cam.ever_streamed && (!fatal.empty() || since > kStallTimeoutNs)) {
+        mark_missing(cam, fatal.empty() ? "no frames since start" : fatal);
+        continue;
+      }
       if (!fatal.empty()) {
         fail(cam, fatal);
       }
-
-      const int64_t last = cam.last_frame_ns.load();
-      const int64_t since = now - (last ? last : cam.started_ns);
       if (since > kStallTimeoutNs) {
         fail(cam, "no frames for " + std::to_string(since / 1'000'000) + " ms");
       }
       update_valves(cam);
+    }
+
+    if (now - last_diag_ns_ >= 1'000'000'000LL) {
+      publish_diagnostics(now);
     }
 
     // Status every 30 s
@@ -548,6 +635,8 @@ private:
     auto * cam = static_cast<Camera *>(user);
     cam->last_frame_ns = steady_ns();
     cam->sensor_frames++;
+    cam->diag_frames++;
+    cam->ever_streamed = true;
     return GST_PAD_PROBE_OK;
   }
 
@@ -631,7 +720,9 @@ private:
   int jpeg_max_rate_;
   std::vector<std::unique_ptr<Camera>> cams_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
   int64_t last_status_ns_ = 0;
+  int64_t last_diag_ns_ = 0;
 };
 
 int main(int argc, char * argv[])

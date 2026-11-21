@@ -9,8 +9,9 @@ from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
-# Stable name from scripts/udev/99-d500-lidar.rules; falls back to the first USB serial port.
-USB_PORT = "/dev/lidar" if os.path.exists("/dev/lidar") else "/dev/ttyUSB0"
+# Stable name from scripts/udev/99-d500-lidar.rules (checked by rule, not by device, so a LiDAR
+# plugged in after boot is still found); without the rule, the first USB serial port.
+USB_PORT = "/dev/lidar" if os.path.exists("/etc/udev/rules.d/99-d500-lidar.rules") else "/dev/ttyUSB0"
 
 
 def generate_launch_description():
@@ -72,7 +73,7 @@ def generate_launch_description():
         # The driver exits after 3 s without data (e.g. USB adapter dropped); respawn reconnects,
         # via /dev/lidar even if the adapter comes back as a different ttyUSBx.
         respawn=True,
-        respawn_delay=2.0,
+        respawn_delay=5.0,
     )
 
     base_link_to_laser = Node(

@@ -1,0 +1,78 @@
+"""Everything the robot runs at boot (scripts/install_autostart.sh -> autocode-bot.service).
+
+- robot.launch.py: robot model, IMU, stereo cameras, D500 LiDAR
+- laser odometry: scan_resampler + rf2o_laser_odometry + imu_odom_node (/odom, odom -> base_footprint)
+- foxglove_bridge on port 8765 (ws://<ip>:8765, also ws://10.42.0.1:8765 on the robot's access point)
+- robot_health: OK/WARN/ERROR per sensor on /diagnostics (Foxglove Diagnostics panels)
+- mapping_manager: /mapping/start, /mapping/stop, /mapping/save (slam_toolbox on demand)
+
+Every node respawns on its own: a missing or failing sensor shows up in Foxglove and never stops
+the rest of the robot.
+"""
+
+import os
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+
+RESPAWN = {"respawn": True, "respawn_delay": 3.0}
+
+
+def generate_launch_description():
+    bringup_share = get_package_share_directory("robot_bringup")
+    foxglove_port = LaunchConfiguration("foxglove_port")
+
+    sensors = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(os.path.join(bringup_share, "launch", "robot.launch.py")),
+    )
+
+    scan_resampler = Node(
+        package="robot_odometry", executable="scan_resampler", name="scan_resampler",
+        output="screen", **RESPAWN,
+    )
+    rf2o = Node(
+        package="rf2o_laser_odometry", executable="rf2o_laser_odometry_node",
+        name="rf2o_laser_odometry",
+        parameters=[os.path.join(bringup_share, "config", "rf2o_params.yaml")],
+        output="screen", **RESPAWN,
+    )
+    imu_odom = Node(
+        package="robot_odometry", executable="imu_odom_node", name="imu_odom_node",
+        output="screen", **RESPAWN,
+    )
+
+    foxglove_bridge = Node(
+        package="foxglove_bridge", executable="foxglove_bridge", name="foxglove_bridge",
+        parameters=[{
+            "port": foxglove_port,
+            "address": "0.0.0.0",
+            "capabilities": ["clientPublish", "parameters", "parametersSubscribe", "services",
+                             "connectionGraph", "assets"],
+        }],
+        output="screen", **RESPAWN,
+    )
+
+    health = Node(
+        package="robot_supervisor", executable="health_node", name="robot_health",
+        output="screen", **RESPAWN,
+    )
+    mapping_manager = Node(
+        package="robot_supervisor", executable="mapping_manager.py", name="mapping_manager",
+        parameters=[{"slam_params": os.path.join(bringup_share, "config", "slam_toolbox_params.yaml")}],
+        output="screen", sigterm_timeout="15", **RESPAWN,
+    )
+
+    return LaunchDescription([
+        DeclareLaunchArgument("foxglove_port", default_value="8765", description="foxglove_bridge port"),
+        sensors,
+        scan_resampler,
+        rf2o,
+        imu_odom,
+        foxglove_bridge,
+        health,
+        mapping_manager,
+    ])

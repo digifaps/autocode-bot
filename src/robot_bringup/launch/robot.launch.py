@@ -1,4 +1,8 @@
-"""Launch file for bringing up the complete robot system."""
+"""Robot sensors: robot model (TF), IMU, stereo cameras, D500 LiDAR.
+
+Every sensor node respawns on its own, so one missing sensor never stops the others.
+bringup.launch.py adds odometry, foxglove_bridge and the supervisor nodes on top.
+"""
 
 import os
 
@@ -44,18 +48,10 @@ def generate_launch_description():
         ],
     )
 
-    # Motor driver node
-    motor_driver = Node(
-        package="motor_driver",
-        executable="motor_driver_node",
-        name="motor_driver",
-        parameters=[{"use_sim_time": use_sim_time}],
-        output="screen",
-    )
 
     # IMU node (publishes /imu/data_raw from stereo camera board)
     imu_node = Node(
-        package="motor_driver",
+        package="imu_driver",
         executable="imu_node",
         name="imu_node",
         parameters=[
@@ -64,6 +60,8 @@ def generate_launch_description():
             {"i2c_addr": i2c_addr},
         ],
         output="screen",
+        respawn=True,  # it retries a missing chip itself; respawn only covers crashes
+        respawn_delay=3.0,
     )
 
     # Stereo camera node
@@ -86,14 +84,6 @@ def generate_launch_description():
         respawn_delay=3.0,
     )
 
-    # Depth processor node
-    depth_processor = Node(
-        package="stereo_vision",
-        executable="depth_processor_node",
-        name="depth_processor",
-        parameters=[{"use_sim_time": use_sim_time}],
-        output="screen",
-    )
 
     # D500 LiDAR (USB by default when launched with robot)
     lidar_use_usb = LaunchConfiguration("lidar_use_usb", default="true")
@@ -139,10 +129,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "lidar_port_name",
             default_value=PythonExpression([
-                "'" + ("/dev/lidar" if os.path.exists("/dev/lidar") else "/dev/ttyUSB0") + "' if '",
+                "'" + ("/dev/lidar" if os.path.exists("/etc/udev/rules.d/99-d500-lidar.rules") else "/dev/ttyUSB0") + "' if '",
                 lidar_use_usb, "' == 'true' else '/dev/ttyTHS1'"
             ]),
-            description="LiDAR serial port (default: /dev/lidar or /dev/ttyUSB0 if lidar_use_usb, else /dev/ttyTHS1)",
+            description="LiDAR serial port (default: /dev/lidar when the udev rule is installed, else /dev/ttyUSB0; /dev/ttyTHS1 without USB)",
         ),
         DeclareLaunchArgument(
             "lidar_use_power",
@@ -155,9 +145,7 @@ def generate_launch_description():
             description="Jetson BOARD GPIO pin for LiDAR power enable",
         ),
         robot_state_publisher,
-        motor_driver,
         imu_node,
         stereo_camera,
-        depth_processor,
         d500_lidar,
     ])

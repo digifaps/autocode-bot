@@ -4,7 +4,7 @@
   <name>robot_description</name>
   <version>0.1.0</version>
   <description>URDF and meshes for autocode-bot</description>
-  <maintainer email="todo@todo.com">autocode-bot</maintainer>
+  <maintainer email="digifaps@users.noreply.github.com">autocode-bot</maintainer>
   <license>GPL-3.0-only</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

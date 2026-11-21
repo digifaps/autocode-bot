@@ -1,0 +1,24 @@
+# Installed by scripts/install_autostart.sh (@USER@, @REPO@ filled in).
+[Unit]
+Description=autocode-bot robot stack (sensors, odometry, Foxglove bridge, health)
+# Cameras need nvargus-daemon; the stack does not wait for a network (no cable in the field)
+Wants=nvargus-daemon.service
+After=nvargus-daemon.service NetworkManager.service systemd-udevd.service
+
+[Service]
+Type=simple
+User=@USER@
+Group=@USER@
+SupplementaryGroups=i2c video dialout gpio
+WorkingDirectory=@HOME@
+Environment=PYTHONUNBUFFERED=1 RCUTILS_COLORIZED_OUTPUT=0
+ExecStart=@REPO@/scripts/robot_bringup.sh
+# SIGINT to ros2 launch only; it stops every node cleanly (cameras need a few seconds)
+KillMode=mixed
+KillSignal=SIGINT
+TimeoutStopSec=30
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

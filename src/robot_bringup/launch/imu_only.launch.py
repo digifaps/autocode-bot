@@ -11,7 +11,7 @@ def generate_launch_description():
         DeclareLaunchArgument("i2c_bus", default_value="8", description="I2C bus number (e.g. 8 for /dev/i2c-8)"),
         DeclareLaunchArgument("i2c_addr", default_value="104", description="I2C address (104 = 0x68)"),
         Node(
-            package="motor_driver",
+            package="imu_driver",
             executable="imu_node",
             name="imu_node",
             parameters=[
