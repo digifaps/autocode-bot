@@ -1,0 +1,12 @@
+# rf2o_laser_odometry (https://github.com/MAPIRlab/rf2o_laser_odometry, ros2 branch)
+# Input is /scan_fixed from scan_resampler (fixed beam count, centred on the laser's x axis).
+# Only the twist (forward speed) is used, by imu_odom_node, which publishes odom -> base_footprint.
+rf2o_laser_odometry:
+  ros__parameters:
+    laser_scan_topic: /scan_fixed
+    odom_topic: /odom_rf2o
+    base_frame_id: base_footprint
+    odom_frame_id: odom
+    publish_tf: false
+    init_pose_from_topic: ""
+    freq: 20.0

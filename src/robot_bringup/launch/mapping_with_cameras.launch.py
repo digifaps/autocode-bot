@@ -12,7 +12,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 
@@ -41,6 +41,7 @@ def generate_launch_description():
     lidar_use_usb = LaunchConfiguration("lidar_use_usb", default="true")
     lidar_use_power = LaunchConfiguration("lidar_use_power", default="false")
     lidar_power_gpio = LaunchConfiguration("lidar_power_gpio_pin", default="12")
+    use_laser_odom = LaunchConfiguration("use_laser_odom", default="true")
     use_depth = LaunchConfiguration("use_depth", default="false")
 
     robot_description = _load_robot_description()
@@ -69,11 +70,37 @@ def generate_launch_description():
         output="screen",
     )
 
+    # Laser odometry: /scan -> fixed-size /scan_fixed -> rf2o -> /odom_rf2o (forward speed)
+    scan_resampler = Node(
+        package="motor_driver",
+        executable="scan_resampler",
+        name="scan_resampler",
+        parameters=[{"use_sim_time": use_sim_time}],
+        output="screen",
+        condition=IfCondition(use_laser_odom),
+    )
+
+    rf2o = Node(
+        package="rf2o_laser_odometry",
+        executable="rf2o_laser_odometry_node",
+        name="rf2o_laser_odometry",
+        parameters=[
+            os.path.join(get_package_share_directory("robot_bringup"), "config", "rf2o_params.yaml"),
+            {"use_sim_time": use_sim_time},
+        ],
+        output="screen",
+        condition=IfCondition(use_laser_odom),
+    )
+
+    # odom -> base_footprint and /odom: IMU heading + rf2o forward speed
     imu_odom_node = Node(
         package="motor_driver",
         executable="imu_odom_node",
         name="imu_odom_node",
-        parameters=[{"use_sim_time": use_sim_time}],
+        parameters=[
+            {"use_sim_time": use_sim_time},
+            {"laser_odom_topic": PythonExpression(["'odom_rf2o' if '", use_laser_odom, "' == 'true' else ''"])},
+        ],
         output="screen",
     )
 
@@ -137,9 +164,12 @@ def generate_launch_description():
         DeclareLaunchArgument("lidar_use_usb", default_value="true", description="Use USB for D500 LiDAR"),
         DeclareLaunchArgument("lidar_use_power", default_value="false", description="LiDAR GPIO power control"),
         DeclareLaunchArgument("lidar_power_gpio_pin", default_value="12", description="GPIO for LiDAR power"),
+        DeclareLaunchArgument("use_laser_odom", default_value="true", description="Laser odometry (rf2o) for translation; false = IMU heading only"),
         DeclareLaunchArgument("use_depth", default_value="false", description="Run depth_processor node (stub)"),
         robot_state_publisher,
         imu_node,
+        scan_resampler,
+        rf2o,
         imu_odom_node,
         d500_include,
         slam_toolbox_node,
