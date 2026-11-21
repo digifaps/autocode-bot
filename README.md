@@ -171,7 +171,14 @@ Then run mapping (from workspace root, after `source install/setup.bash`):
 ros2 launch robot_bringup mapping.launch.py
 ```
 
-This starts: robot state publisher, D500 LiDAR (`/scan`), IMU (`/imu/data_raw`), an IMU-based `odom` → `base_link` TF (gyro yaw), and slam_toolbox. The map is published on `/map`; TF chain is `map` → `odom` (slam_toolbox) → `base_link` (imu_odom_node) → `base_laser`. View the map in Foxglove (Map panel, topic `/map`) or RViz. Move the robot (by hand or with teleop) to build the map; save it later with `ros2 run nav2_map_server map_saver_cli` when using Nav2.
+This starts: robot state publisher, D500 LiDAR (`/scan`), IMU (`/imu/data_raw`), laser odometry, `imu_odom_node` and slam_toolbox. The map is published on `/map`; TF chain is `map` → `odom` (slam_toolbox) → `base_footprint` (imu_odom_node) → `base_link` → `base_laser`.
+
+**Odometry** (no wheel encoders yet): `scan_resampler` turns `/scan` into `/scan_fixed` (fixed 500 beams centred on straight ahead, which rf2o needs; the D500 sends 501–505 points per turn), [rf2o_laser_odometry](https://github.com/MAPIRlab/rf2o_laser_odometry) estimates the forward speed from consecutive scans (`/odom_rf2o`), and `imu_odom_node` integrates it along the IMU heading into `/odom` and `odom` → `base_footprint`. The heading uses the gyro projected onto the measured gravity direction, because the IMU on the stereo board is mounted upright. Keep the robot still for the first 5 s (gyro bias and gravity direction). `use_laser_odom:=false` falls back to heading only. Build rf2o once:
+
+```bash
+cd ~/ros2_ws/src && git clone -b ros2 https://github.com/MAPIRlab/rf2o_laser_odometry.git
+cd ~/ros2_ws && colcon build --symlink-install --packages-select rf2o_laser_odometry --cmake-args -DCMAKE_BUILD_TYPE=Release
+``` View the map in Foxglove (Map panel, topic `/map`) or RViz. Move the robot (by hand or with teleop) to build the map; save it later with `ros2 run nav2_map_server map_saver_cli` when using Nav2.
 
 ## LiDAR (Waveshare D500)
 
