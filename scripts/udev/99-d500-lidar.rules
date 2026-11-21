@@ -1,0 +1,6 @@
+# Waveshare D500 LiDAR on its CP2102 USB-serial adapter (10c4:ea60).
+# - /dev/lidar always points at the adapter, whichever ttyUSBx it gets after a replug.
+# - USB serial ports are read/write for everyone, so no sudo/dialout is needed.
+# Install: sudo cp scripts/udev/99-d500-lidar.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=tty
+KERNEL=="ttyUSB[0-9]*", MODE="0666"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="lidar"

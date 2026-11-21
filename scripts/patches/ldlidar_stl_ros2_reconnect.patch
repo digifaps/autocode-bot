@@ -1,0 +1,125 @@
+diff --git a/ldlidar_driver/src/serialcom/serial_interface_linux.cpp b/ldlidar_driver/src/serialcom/serial_interface_linux.cpp
+index c110c77..27e86c3 100644
+--- a/ldlidar_driver/src/serialcom/serial_interface_linux.cpp
++++ b/ldlidar_driver/src/serialcom/serial_interface_linux.cpp
+@@ -18,6 +18,8 @@
+  */
+ 
+ #include "serial_interface_linux.h"
++
++#include <unistd.h>
+ #include "log_module.h"
+ 
+ 
+@@ -105,17 +107,19 @@ bool SerialInterfaceLinux::Close() {
+ 
+   rx_thread_exit_flag_ = true;
+ 
+-  if (com_handle_ != -1) {
+-    close(com_handle_);
+-    com_handle_ = -1;
+-  }
+-
++  // Join the RX thread before closing the fd: closing first let the thread call
++  // FD_SET(-1) in ReadFromIO, which aborts ("*** buffer overflow detected ***").
+   if ((rx_thread_ != nullptr) && rx_thread_->joinable()) {
+     rx_thread_->join();
+     delete rx_thread_;
+     rx_thread_ = nullptr;
+   }
+ 
++  if (com_handle_ != -1) {
++    close(com_handle_);
++    com_handle_ = -1;
++  }
++
+   is_cmd_opened_ = false;
+ 
+   return true;
+@@ -126,11 +130,12 @@ bool SerialInterfaceLinux::ReadFromIO(uint8_t *rx_buf, uint32_t rx_buf_len,
+   static timespec timeout = {0, (long)(100 * 1e6)};
+   int32_t len = -1;
+ 
+-  if (IsOpened()) {
++  const int fd = com_handle_;
++  if (IsOpened() && fd >= 0) {
+     fd_set read_fds;
+     FD_ZERO(&read_fds);
+-    FD_SET(com_handle_, &read_fds);
+-    int r = pselect(com_handle_ + 1, &read_fds, NULL, NULL, &timeout, NULL);
++    FD_SET(fd, &read_fds);
++    int r = pselect(fd + 1, &read_fds, NULL, NULL, &timeout, NULL);
+     if (r < 0) {
+       // Select was interrupted
+       if (errno == EINTR) {
+@@ -140,8 +145,12 @@ bool SerialInterfaceLinux::ReadFromIO(uint8_t *rx_buf, uint32_t rx_buf_len,
+       return false;
+     }
+ 
+-    if (FD_ISSET(com_handle_, &read_fds)) {
+-      len = (int32_t)read(com_handle_, rx_buf, rx_buf_len);
++    if (FD_ISSET(fd, &read_fds)) {
++      len = (int32_t)read(fd, rx_buf, rx_buf_len);
++      if (len <= 0) {
++        // Readable but no data (0) or EIO: the USB adapter is gone. Don't spin.
++        usleep(100000);
++      }
+       if ((len != -1) && rx_len) {
+         *rx_len = len;
+       }
+diff --git a/src/demo.cpp b/src/demo.cpp
+index fe8401d..d3af79f 100644
+--- a/src/demo.cpp
++++ b/src/demo.cpp
+@@ -19,6 +19,7 @@
+  * limitations under the License.
+  */
+ 
++#include <chrono>
+ #include "ros2_api.h"
+ #include "ldlidar_driver.h"
+ 
+@@ -115,9 +116,15 @@ int main(int argc, char **argv) {
+   ldlidar::Points2D laser_scan_points;
+   double lidar_scan_freq;
+   RCLCPP_INFO(node->get_logger(), "Publish topic message:ldlidar scan data.");
++  // No data for this long (e.g. USB adapter unplugged) -> exit non-zero so launch can respawn
++  // the node; the driver cannot reopen a serial device that has disappeared.
++  const auto no_data_exit = std::chrono::seconds(3);
++  auto last_data = std::chrono::steady_clock::now();
++  int exit_code = 0;
+   while (rclcpp::ok()) {
+     switch (ldlidarnode->GetLaserScanData(laser_scan_points, 1500)){
+       case ldlidar::LidarStatus::NORMAL: 
++        last_data = std::chrono::steady_clock::now();
+         ldlidarnode->GetLidarScanFreq(lidar_scan_freq);
+         ToLaserscanMessagePublish(laser_scan_points, lidar_scan_freq, setting, node, publisher);
+         break;
+@@ -130,6 +137,13 @@ int main(int argc, char **argv) {
+         break;
+     }
+ 
++    if (std::chrono::steady_clock::now() - last_data > no_data_exit) {
++      RCLCPP_FATAL(node->get_logger(), "no data from %s for %ld s, exiting (respawn to reconnect)",
++        port_name.c_str(), static_cast<long>(no_data_exit.count()));
++      exit_code = EXIT_FAILURE;
++      break;
++    }
++
+     r.sleep();
+   }
+ 
+@@ -139,9 +153,11 @@ int main(int argc, char **argv) {
+   ldlidarnode = nullptr;
+ 
+   RCLCPP_INFO(node->get_logger(), "ldlidar_published is end");
+-  rclcpp::shutdown();
++  if (rclcpp::ok()) {
++    rclcpp::shutdown();
++  }
+ 
+-  return 0;
++  return exit_code;
+ }
+ 
+ void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq, LaserScanSetting& setting,

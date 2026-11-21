@@ -1,7 +1,7 @@
 #!/bin/bash
 # Start ROS (stereo + IMU + LiDAR over USB) and telemetry so the webpage shows real data.
 # Run from your ROS2 workspace root (e.g. cd ~/ros2_ws) or from autocode-bot repo root.
-# LiDAR: use_usb:=true (default /dev/ttyUSB0). USB works as-is.
+# LiDAR: use_usb:=true (/dev/lidar if the udev rule is installed, else /dev/ttyUSB0).
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,8 +42,9 @@ echo "Workspace: $WS_ROOT"
 echo "Robot package: $BOT_REL"
 
 # 1) Robot (stereo cameras + IMU + depth_processor + motor_driver + D500 LiDAR; LiDAR is included by robot.launch.py)
-# LiDAR over USB by default; set LIDAR_USB_PORT=/dev/ttyUSB1 if the adapter enumerates elsewhere
-LIDAR_PORT="${LIDAR_USB_PORT:-/dev/ttyUSB0}"
+# LiDAR over USB: /dev/lidar (udev rule scripts/udev/99-d500-lidar.rules), else /dev/ttyUSB0; override with LIDAR_USB_PORT
+if [ -e /dev/lidar ]; then DEFAULT_LIDAR_PORT=/dev/lidar; else DEFAULT_LIDAR_PORT=/dev/ttyUSB0; fi
+LIDAR_PORT="${LIDAR_USB_PORT:-$DEFAULT_LIDAR_PORT}"
 ros2 launch robot_bringup robot.launch.py lidar_use_usb:=true lidar_port_name:="$LIDAR_PORT" &
 PIDS+=($!)
 sleep 3

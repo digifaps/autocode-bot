@@ -38,6 +38,8 @@ Connect the D500 to a UART on the Jetson 40-pin GPIO header for direct control (
 ```bash
 cd ~/ros2_ws/src
 git clone https://github.com/ldrobotSensorTeam/ldlidar_stl_ros2.git
+# Fixes from autocode-bot: no abort on shutdown, exit (and get respawned) when the USB adapter drops
+git -C ldlidar_stl_ros2 apply ../autocode-bot/scripts/patches/ldlidar_stl_ros2_reconnect.patch
 # lidar_control is in autocode-bot repo
 cd ~/ros2_ws
 source ~/ros2_humble/install/setup.bash
@@ -47,7 +49,17 @@ source install/setup.bash
 
 ### 2. Serial port
 
-USB (e.g. `/dev/ttyUSB0`) and onboard UART (`/dev/ttyTHS1`) work as-is; no udev rules or extra setup required.
+Onboard UART (`/dev/ttyTHS1`) works as-is. For the USB adapter, install the udev rule once:
+
+```bash
+sudo cp ~/ros2_ws/src/autocode-bot/scripts/udev/99-d500-lidar.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=tty
+ls -l /dev/lidar   # -> ttyUSB0 (or whichever ttyUSBx the CP2102 got)
+```
+
+It makes USB serial ports read/write without `dialout` and creates `/dev/lidar` for the CP2102 adapter (10c4:ea60). The launch files and start scripts use `/dev/lidar` when it exists, else `/dev/ttyUSB0`.
+
+**If the USB adapter drops out** (seen on the robot: `cp210x ttyUSB0: ... urb stopped: -32`, then a USB disconnect in `dmesg`), the patched driver exits after 3 s without data and launch respawns it every ~2 s until the adapter is back. After a replug the adapter often gets a different `ttyUSBx`; `/dev/lidar` follows it, so `/scan` resumes on its own. Repeated drop-outs point at the cable, connector or the LiDAR's 5 V supply.
 
 ### 3. Launch
 
@@ -69,10 +81,10 @@ ros2 launch robot_bringup d500_lidar.launch.py
 ros2 launch robot_bringup d500_lidar.launch.py use_lidar_power:=true power_enable_gpio_pin:=12
 ```
 
-**USB adapter:** use the `use_usb` option (default port `/dev/ttyUSB0`) or override with `port_name`:
+**USB adapter:** use the `use_usb` option (port `/dev/lidar`, else `/dev/ttyUSB0`) or override with `port_name`:
 
 ```bash
-# Short form (uses /dev/ttyUSB0)
+# Short form (uses /dev/lidar, else /dev/ttyUSB0)
 ros2 launch robot_bringup d500_lidar.launch.py use_usb:=true
 
 # Or specify port explicitly
@@ -116,6 +128,7 @@ If you use `use_lidar_power:=true` in the launch file, the `lidar_control_node` 
 | No `/dev/ttyTHS1` | Onboard UART: check 40-pin wiring (8=TX, 10=RX); verify pinmux if needed |
 | No `/dev/ttyUSB*` | USB cable and adapter; run `lsusb` and `dmesg \| tail` |
 | Permission denied | Add user to `dialout`: `sudo usermod -aG dialout $USER`, then log out and back in |
+| `/scan` stops, log says `no data from ... exiting` | USB adapter dropped out; check `dmesg`. The driver respawns and resumes once the adapter is back |
 | No data on `/scan` | Correct port in launch; baud 230400; LiDAR powered (use `lidar/set_power` if using GPIO) |
 | Wrong port | List with `ls /dev/tty*` and use `port_name:=/dev/ttyXXX` |
 
