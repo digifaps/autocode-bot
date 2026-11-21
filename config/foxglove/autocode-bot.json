@@ -1,0 +1,88 @@
+{
+  "configById": {
+    "3D!robot": {
+      "followMode": "follow-pose",
+      "followTf": "base_footprint",
+      "cameraState": {
+        "perspective": true,
+        "distance": 8,
+        "phi": 50,
+        "thetaOffset": 90,
+        "targetOffset": [0, 0, 0],
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "scene": {
+        "transforms": { "showLabel": false, "axisScale": 0.6 }
+      },
+      "transforms": {},
+      "topics": {
+        "/map": { "visible": true },
+        "/scan": { "visible": true, "colorField": "range", "colorMode": "colormap", "colorMap": "turbo", "pointSize": 4 },
+        "/robot_description": { "visible": true },
+        "/odom": { "visible": true }
+      },
+      "layers": {
+        "grid": { "visible": true, "layerId": "foxglove.Grid", "size": 10, "divisions": 10, "frameId": "odom" }
+      }
+    },
+    "Image!left": {
+      "imageMode": { "imageTopic": "/camera/left/compressed" }
+    },
+    "Image!right": {
+      "imageMode": { "imageTopic": "/camera/right/compressed" }
+    },
+    "Plot!odom": {
+      "title": "Odometry",
+      "paths": [
+        { "value": "/odom.pose.pose.position.x", "enabled": true, "timestampMethod": "receiveTime", "label": "x (m)" },
+        { "value": "/odom.pose.pose.position.y", "enabled": true, "timestampMethod": "receiveTime", "label": "y (m)" },
+        { "value": "/odom.twist.twist.linear.x", "enabled": true, "timestampMethod": "receiveTime", "label": "speed (m/s)" }
+      ],
+      "showLegend": true,
+      "followingViewWidth": 60
+    },
+    "Plot!imu": {
+      "title": "IMU gyro (rad/s)",
+      "paths": [
+        { "value": "/imu/data_raw.angular_velocity.x", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/imu/data_raw.angular_velocity.y", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/imu/data_raw.angular_velocity.z", "enabled": true, "timestampMethod": "receiveTime" }
+      ],
+      "showLegend": true,
+      "followingViewWidth": 30
+    },
+    "RawMessages!odom": {
+      "topicPath": "/odom",
+      "expansion": "all"
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": { "speed": 1 },
+  "layout": {
+    "first": "3D!robot",
+    "second": {
+      "first": {
+        "first": "Image!left",
+        "second": "Image!right",
+        "direction": "row"
+      },
+      "second": {
+        "first": "Plot!odom",
+        "second": {
+          "first": "Plot!imu",
+          "second": "RawMessages!odom",
+          "direction": "row",
+          "splitPercentage": 60
+        },
+        "direction": "column"
+      },
+      "direction": "column",
+      "splitPercentage": 40
+    },
+    "direction": "row",
+    "splitPercentage": 55
+  }
+}

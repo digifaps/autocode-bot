@@ -29,6 +29,7 @@ This project implements an autonomous differential-drive robot running ROS2 on N
 ```
 autocode-bot/
 ├── config/                 # Configuration files
+│   ├── foxglove/           # Foxglove layout (import from file)
 │   ├── navigation/         # Nav2 parameters
 │   └── robot_description/  # URDF parameters
 ├── docs/                   # Documentation
@@ -73,6 +74,8 @@ scripts/start_foxglove.sh
 ```
 
 Then in **Foxglove Studio**: Open connection → **Foxglove WebSocket** → `ws://<JETSON_IP>:8765`. Use panels for `/imu/data_raw`, `/scan`, `/camera/left/compressed`, `/camera/right/compressed` (raw `image_raw` topics also work). One-time setup: see [Foxglove](#foxglove-recommended) below.
+
+**Ready-made layout:** import [`config/foxglove/autocode-bot.json`](config/foxglove/autocode-bot.json) in Foxglove (layout menu → **Import from file…**). It has a 3D view following the robot (map, LiDAR scan, robot model, TF, grid), both camera images, an odometry plot (x, y, speed), a gyro plot and the raw `/odom` message. `/map` and `/odom` only exist while `mapping.launch.py` runs.
 
 **Cameras:** `stereo_camera_node` publishes both topic types per camera from one GStreamer pipeline:
 
