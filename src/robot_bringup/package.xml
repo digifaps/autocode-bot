@@ -19,6 +19,7 @@
   <exec_depend>robot_description</exec_depend>
   <exec_depend>ldlidar_stl_ros2</exec_depend>
   <exec_depend>rf2o_laser_odometry</exec_depend>
+  <exec_depend>robot_odometry</exec_depend>
   <exec_depend>lidar_control</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>
