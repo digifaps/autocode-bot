@@ -1,37 +1,65 @@
 # Stereo calibration (wide-angle lenses)
 
-The robot uses a Waveshare IMX219-83 stereo camera with **wide-angle lenses**. Strong distortion (especially at the edges) must be captured correctly for good rectification and depth.
+The robot uses a Waveshare IMX219-83 stereo camera with **wide-angle lenses** (83° diagonal, ~60 mm baseline). Depth needs a stereo calibration: intrinsics and distortion per camera, plus the rotation and translation between them, so the images can be rectified (matching points on the same row).
 
 ## Why it matters
 
-- **Wide angle ⇒ strong radial distortion** (barrel). If calibration ignores the edges or uses a weak model, rectified images will be wrong near the borders and stereo matching will fail there.
-- **Standard model**: ROS2 and `image_geometry` use the **plumb_bob** (radial-tangential) distortion model in `CameraInfo` (typically 5 coefficients: k1, k2, p1, p2, k3). This is what the current depth pipeline expects.
-- **Fisheye**: For very wide or fisheye lenses, OpenCV’s **fisheye** model can fit better, but then you need custom rectification; `image_geometry::StereoCameraModel` assumes the standard model.
+- **Wide angle ⇒ strong radial distortion** (barrel). If calibration ignores the edges, rectified images will be wrong near the borders and stereo matching fails there.
+- **Model**: we calibrate with the standard **plumb_bob** model (k1, k2, p1, p2, k3), which `sensor_msgs/CameraInfo`, `image_geometry` and OpenCV's stereo functions all understand.
+- **Not synchronized**: the two IMX219 sensors are free-running, so left and right frames can be up to one frame apart. The calibrator therefore only takes a sample when the board is **held still** in both views.
+- **Resolution**: a calibration only holds for the sensor mode it was made at (1280×720 here). The camera node ignores a calibration file with a different size.
 
-## Recommended approach
+## What you need
 
-1. **Calibrate with the standard (plumb_bob) model first**
-   - Use the ROS2 **camera_calibration** stereo flow (or any tool that outputs `sensor_msgs/CameraInfo` with standard distortion).
-   - **Cover the whole image**: move the checkerboard into the **center and all four corners/edges**. With wide angle, edge samples are critical; if you only calibrate in the center, edges will be poorly rectified.
-   - Use a checkerboard with enough inner corners for your resolution (e.g. 8×6 or 9×6). Print it flat and use a known square size in metres.
+- A **checkerboard** with an unequal number of inner corners, e.g. **10×7 squares = 9×6 inner corners**. Print it at 100 % scale and glue it to something rigid and flat (foam board, a clipboard, glass). A curled sheet ruins the calibration.
+- Squares of **25–40 mm**, so the board is readable from 0.5 to 2 m.
+- **Measure the square size with a ruler** after printing, in metres. A wrong value scales the baseline (and every depth) by the same factor.
+- Good, even light; avoid glare on the board.
 
-2. **Check rectification quality**
-   - After saving calibration, run rectification (e.g. in `depth_processor_node` or with `image_proc`) and inspect:
-     - Horizontal epipolar lines (same row in left and right).
-     - No strong blur or stretching at the edges.
-   - If the **edges are still bad**, consider:
-     - More calibration poses, especially at the corners.
-     - Or switching to **fisheye calibration** and implementing fisheye rectification (custom code; not covered here).
+## Procedure
 
-3. **Store calibration**
-   - Save the left/right calibration (YAML or CameraInfo) under `config/camera_calibration/` (e.g. a dated subfolder).
-   - Ensure the stereo camera node (or `camera_info_manager`) loads and publishes `CameraInfo` for left and right so the depth node can use it.
+1. **Start the robot stack** on the Jetson (cameras must be running):
+   ```bash
+   cd ~/ros2_ws && ./src/autocode-bot/scripts/start_foxglove.sh
+   ```
+2. **Start the calibrator** in a second terminal, with your board's inner corners and measured square size:
+   ```bash
+   source ~/ros2_ws/install/setup.bash
+   ros2 run stereo_vision stereo_calibrator.py --ros-args \
+     -p board_cols:=9 -p board_rows:=6 -p square_size:=0.025
+   ```
+3. **In Foxglove**, add an **Image** panel on `/calibration/preview`. It shows both views with the detected corners, the sample count, a status line and four coverage bars (X, Y, Size, Skew). It updates about once a second while no board is visible and a few times a second once it is.
+4. **Collect samples.** Hold the board in a pose until the status says `sample N saved` (about one second of holding still), then move to a different pose:
+   - all over the image: centre, **all four corners and edges** (most important with wide-angle lenses);
+   - near (≈0.4 m, board filling most of the view) and far (≈2 m);
+   - tilted 30–45° left/right and up/down.
+   The board must be fully visible in **both** cameras. Aim for **30–40 samples** and all four bars green. Each pair is saved as full-resolution PNGs in `~/calibration/<date_time>/samples/`.
+5. **Solve:**
+   ```bash
+   ros2 service call /calibration/calibrate std_srvs/srv/Trigger
+   ```
+   This writes `left.yaml`, `right.yaml` and `report.txt` into the session folder and prints the report, e.g.:
+   ```
+   RMS reprojection error: left 0.31 px, right 0.22 px, stereo 0.28 px
+   rectified row mismatch (epipolar): mean 0.05 px, max 1.49 px
+   baseline: 59.9 mm (board spec ~60 mm)
+   verdict: GOOD
+   ```
+   What to look for: stereo RMS **below ~0.5 px** (1 px at most), mean epipolar error **below 0.5 px**, and a baseline **close to 60 mm**. A baseline that is clearly off almost always means a wrong `square_size` or a bent board. You can keep collecting and call the service again.
+6. **Install the calibration** and restart the camera node:
+   ```bash
+   cp ~/calibration/<date_time>/{left,right}.yaml \
+      ~/ros2_ws/src/autocode-bot/src/stereo_vision/config/calibration/
+   cd ~/ros2_ws && colcon build --symlink-install --packages-select stereo_vision
+   ```
+   `stereo_camera_node` loads `config/calibration/{left,right}.yaml` from the `stereo_vision` share directory at startup (or the files given by the `left_calibration_file` / `right_calibration_file` parameters) and publishes them on `camera/{left,right}/camera_info`, with exactly the stamp of each published image. Without a file it publishes uncalibrated (all-zero) `camera_info` and logs a warning. Commit the two YAML files so the calibration travels with the repo.
 
-## Summary
+**Re-solving offline** (e.g. after fixing the square size), from the saved PNGs:
+```bash
+python3 ~/ros2_ws/src/autocode-bot/src/stereo_vision/scripts/stereo_calibrator.py \
+  --solve ~/calibration/<date_time> --cols 9 --rows 6 --square 0.0245
+```
 
-| Lens type   | Calibration model | Coverage during capture      |
-|------------|-------------------|------------------------------|
-| Wide-angle | Standard (plumb_bob) first | Full frame, especially edges |
-| Very wide / fisheye | Consider OpenCV fisheye later | Full frame required          |
+## If the edges stay bad
 
-Calibrate with **full-frame coverage**; if the standard model gives poor edges, plan for a fisheye model and custom rectification.
+If rectified images are still distorted near the borders after a good capture (more corner samples did not help), the lenses may need OpenCV's **fisheye** model. That needs custom rectification, because `image_geometry` assumes plumb_bob; it is not implemented yet.

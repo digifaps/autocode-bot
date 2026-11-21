@@ -15,6 +15,8 @@
   <depend>image_transport</depend>
   <depend>cv_bridge</depend>
   <depend>camera_info_manager</depend>
+  <depend>camera_calibration_parsers</depend>
+  <depend>ament_index_cpp</depend>
   <depend>image_geometry</depend>
 
   <build_depend>OpenCV</build_depend>
@@ -22,6 +24,12 @@
   <build_depend>libgstreamer1.0-dev</build_depend>
   <build_depend>libgstreamer-plugins-base1.0-dev</build_depend>
   <exec_depend>gstreamer1.0-plugins-base</exec_depend>
+
+  <!-- stereo_calibrator.py -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
