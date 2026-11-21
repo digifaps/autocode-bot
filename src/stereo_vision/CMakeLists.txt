@@ -20,6 +20,9 @@ find_package(cv_bridge REQUIRED)
 find_package(camera_info_manager REQUIRED)
 find_package(image_geometry REQUIRED)
 find_package(OpenCV REQUIRED)
+# Camera capture + hardware JPEG (nvarguscamerasrc / nvjpegenc come with L4T)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GST REQUIRED IMPORTED_TARGET gstreamer-1.0 gstreamer-app-1.0 gstreamer-video-1.0)
 
 # Optional: CUDA support for accelerated stereo matching
 find_package(CUDA QUIET)
@@ -41,14 +44,11 @@ add_executable(stereo_camera_node
 )
 ament_target_dependencies(stereo_camera_node
   rclcpp
-  std_msgs
   sensor_msgs
-  image_transport
-  cv_bridge
-  camera_info_manager
 )
+# No OpenCV/cv_bridge here: OpenCV's libjpeg in the same process can clash with nvjpegenc.
 target_link_libraries(stereo_camera_node
-  ${OpenCV_LIBS}
+  PkgConfig::GST
 )
 
 # Depth processor node

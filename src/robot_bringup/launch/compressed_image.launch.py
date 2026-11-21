@@ -1,4 +1,9 @@
-"""Launch only the CompressedImage relay (for use with stereo + rosbridge when robot.launch.py is not used)."""
+"""Launch only the software CompressedImage relay (Python/OpenCV JPEG).
+
+Fallback only: stereo_camera_node already publishes camera/{left,right}/compressed with the
+hardware JPEG encoder. Start the camera node with publish_compressed:=false before using this,
+or both will publish on the same topics.
+"""
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
