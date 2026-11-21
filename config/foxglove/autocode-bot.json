@@ -52,33 +52,6 @@
         }
       }
     },
-    "CallService!mapstart": {
-      "serviceName": "/mapping/start",
-      "requestPayload": "{}",
-      "layout": "vertical",
-      "editingMode": false,
-      "buttonText": "Start mapping",
-      "buttonTooltip": "Start slam_toolbox; the map appears in the 3D view",
-      "buttonColor": "#2e7d32"
-    },
-    "CallService!mapstop": {
-      "serviceName": "/mapping/stop",
-      "requestPayload": "{}",
-      "layout": "vertical",
-      "editingMode": false,
-      "buttonText": "Stop mapping",
-      "buttonTooltip": "Stop slam_toolbox (save first if you want to keep the map)",
-      "buttonColor": "#c62828"
-    },
-    "CallService!mapsave": {
-      "serviceName": "/mapping/save",
-      "requestPayload": "{}",
-      "layout": "vertical",
-      "editingMode": false,
-      "buttonText": "Save map",
-      "buttonTooltip": "Write the map to ~/maps on the robot",
-      "buttonColor": "#1565c0"
-    },
     "Image!left": {
       "imageMode": {
         "imageTopic": "/camera/left/compressed"
@@ -175,7 +148,8 @@
       "maxYValue": 100,
       "showLegend": true,
       "followingViewWidth": 60
-    }
+    },
+    "autocode-bot panels.Mapping!mapping": {}
   },
   "globalVariables": {},
   "userNodes": {},
@@ -185,18 +159,9 @@
   "layout": {
     "first": {
       "first": "3D!robot",
-      "second": {
-        "first": "CallService!mapstart",
-        "second": {
-          "first": "CallService!mapstop",
-          "second": "CallService!mapsave",
-          "direction": "row"
-        },
-        "direction": "row",
-        "splitPercentage": 33
-      },
+      "second": "autocode-bot panels.Mapping!mapping",
       "direction": "column",
-      "splitPercentage": 85
+      "splitPercentage": 80
     },
     "second": {
       "first": {

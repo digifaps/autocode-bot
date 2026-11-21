@@ -59,6 +59,9 @@ def generate_launch_description():
             # publisher it subscribes to (TF, /odom, /rosout) burn CPU on resends.
             "capabilities": ["clientPublish", "services", "assets"],
         }],
+        # Its only warnings are "Limiting history depth for topic ..." on every viewer
+        # subscription (it sums the queue depths of all publishers); they flooded Foxglove's log.
+        ros_arguments=["--log-level", "foxglove_bridge:=error"],
         output="screen", **RESPAWN,
     )
 

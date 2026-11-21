@@ -121,10 +121,10 @@ sudo scripts/install_autostart.sh --remove    # no autostart
 
 ## Foxglove
 
-Foxglove → Open connection → **Foxglove WebSocket** → `ws://<robot-ip>:8765` (on the robot's Wi-Fi: `ws://10.42.0.1:8765`). Then import the layout [`config/foxglove/autocode-bot.json`](config/foxglove/autocode-bot.json) (layout menu → **Import from file…**):
+Foxglove → Open connection → **Foxglove WebSocket** → `ws://<robot-ip>:8765` (on the robot's Wi-Fi: `ws://10.42.0.1:8765`). Install the extension [`config/foxglove/autocode-bot-panels.foxe`](config/foxglove/autocode-bot-panels.foxe) once (drag it onto the Foxglove window, or Settings → Extensions → **Install local extension**; it provides the Mapping panel; Foxglove names it after the extension displayName "autocode-bot panels", which the layout refers to), then import the layout [`config/foxglove/autocode-bot.json`](config/foxglove/autocode-bot.json) (layout menu → **Import from file…**):
 
 - **3D view** following the robot: map, LiDAR scan, robot model, TF, grid
-- **Start mapping / Stop mapping / Save map** buttons (slam_toolbox only runs while mapping)
+- **Mapping** panel: Start mapping / Stop mapping / Save map buttons, the mapping status and the reply of the last call (slam_toolbox only runs while mapping). Source: `config/foxglove/extension/` (plain JavaScript, repackage with `python3 config/foxglove/extension/package.py`)
 - both **camera images**, an **odometry** plot (x, y, speed)
 - **Diagnostics**: OK / WARN / ERROR per sensor, odometry, Jetson (temperature, memory, disk), network (Ethernet, access point clients), mapping
 - **CPU per core** (%), from `/system/cpu_usage` (published by `robot_health`: `data[0..5]` per core, `data[6]` all cores)
