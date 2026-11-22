@@ -11,6 +11,7 @@ The robot uses a Waveshare IMX219-83 stereo camera with **wide-angle lenses** (8
 
 ## What you need
 
+- **Ready to print (A4):** [calibration_board_A4_9x6_25mm.pdf](calibration_board_A4_9x6_25mm.pdf): 10×7 squares of 25 mm (9×6 inner corners, the calibrator's defaults), with a 100 mm check line. Print at **100 % / Actual size** in landscape. Other sizes: `scripts/make_calibration_board.py --paper A3 --square 35 -o board.pdf` (it prints the matching calibrator parameters). An A4 board is small for wide-angle lenses: take most samples at 0.3–0.8 m; if the edges stay poor, use a larger board.
 - A **checkerboard** with an unequal number of inner corners, e.g. **10×7 squares = 9×6 inner corners**. Print it at 100 % scale and glue it to something rigid and flat (foam board, a clipboard, glass). A curled sheet ruins the calibration.
 - Squares of **25–40 mm**, so the board is readable from 0.5 to 2 m.
 - **Measure the square size with a ruler** after printing, in metres. A wrong value scales the baseline (and every depth) by the same factor.
