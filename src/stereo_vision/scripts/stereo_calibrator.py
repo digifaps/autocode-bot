@@ -121,8 +121,11 @@ def object_points(cols, rows, square):
 
 
 def solve(left_corners, right_corners, image_size, cols, rows, square):
-    """Intrinsics per camera, stereo extrinsics with intrinsics fixed, rectification.
-    Returns a dict with matrices and quality metrics."""
+    """Intrinsics per camera, then a joint stereo refinement of intrinsics and extrinsics, then
+    rectification. Returns a dict with matrices and quality metrics.
+    Freezing the per-camera intrinsics (CALIB_FIX_INTRINSIC) made samples near the image edges
+    worsen the result (66 samples here: rows misaligned by 0.88 px); refining them jointly gave
+    0.31 px on the same samples."""
     objp = object_points(cols, rows, square)
     obj = [objp] * len(left_corners)
     flags = 0  # plumb_bob: k1, k2, p1, p2, k3
@@ -131,7 +134,7 @@ def solve(left_corners, right_corners, image_size, cols, rows, square):
     crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 1e-6)
     rms_s, K1, D1, K2, D2, R, T, E, F = cv2.stereoCalibrate(
         obj, left_corners, right_corners, K1, D1, K2, D2, image_size,
-        criteria=crit, flags=cv2.CALIB_FIX_INTRINSIC)
+        criteria=crit, flags=cv2.CALIB_USE_INTRINSIC_GUESS)
     R1, R2, P1, P2, Q, roi1, roi2 = cv2.stereoRectify(
         K1, D1, K2, D2, image_size, R, T, flags=cv2.CALIB_ZERO_DISPARITY, alpha=0)
     # Epipolar check: after rectification, matching corners must lie on the same row
