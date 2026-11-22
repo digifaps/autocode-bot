@@ -12,6 +12,9 @@ Group=@USER@
 SupplementaryGroups=i2c video dialout gpio
 WorkingDirectory=@HOME@
 Environment=PYTHONUNBUFFERED=1 RCUTILS_COLORIZED_OUTPUT=0
+# Socket buffer limits for Cyclone DDS (raw camera images), applied as root on every start:
+# /etc/sysctl.d alone was found reset after a reboot, and nodes only size their buffers at startup.
+ExecStartPre=-+/sbin/sysctl -q -p /etc/sysctl.d/60-autocode-bot-dds.conf
 ExecStart=@REPO@/scripts/robot_bringup.sh
 # SIGINT to ros2 launch only; it stops every node cleanly (cameras need a few seconds)
 KillMode=mixed
