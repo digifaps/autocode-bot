@@ -26,7 +26,7 @@ The robot uses a Waveshare IMX219-83 stereo camera with **wide-angle lenses** (8
    ros2 run stereo_vision stereo_calibrator.py --ros-args \
      -p board_cols:=9 -p board_rows:=6 -p square_size:=0.025
    ```
-3. **In Foxglove**, add an **Image** panel on `/calibration/preview`. It shows both views with the detected corners, the sample count, a status line and four coverage bars (X, Y, Size, Skew). It updates about once a second while no board is visible and a few times a second once it is.
+3. **In Foxglove**, import the layout `config/foxglove/autocode-bot-calibration.json` (large preview, a **Solve calibration** button, the calibrator's log with the report, camera status), or add an **Image** panel on `/calibration/preview`. It shows both views with the detected corners, the sample count, a status line and four coverage bars (X, Y, Size, Skew). It updates about once a second while no board is visible and a few times a second once it is.
 4. **Collect samples.** Hold the board in a pose until the status says `sample N saved` (about one second of holding still), then move to a different pose:
    - all over the image: centre, **all four corners and edges** (most important with wide-angle lenses);
    - near (≈0.4 m, board filling most of the view) and far (≈2 m);

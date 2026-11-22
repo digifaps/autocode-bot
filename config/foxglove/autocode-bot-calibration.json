@@ -1,0 +1,52 @@
+{
+  "configById": {
+    "Image!calpreview": {
+      "imageMode": {
+        "imageTopic": "/calibration/preview"
+      }
+    },
+    "CallService!calsolve": {
+      "serviceName": "/calibration/calibrate",
+      "requestPayload": "{}",
+      "layout": "vertical",
+      "editingMode": false,
+      "buttonText": "Solve calibration",
+      "buttonTooltip": "Compute the calibration from the samples so far (you can keep collecting and solve again)",
+      "buttonColor": "#1565c0"
+    },
+    "RosOut!callog": {
+      "topicToRender": "/rosout",
+      "minLogLevel": 2,
+      "searchTerms": [
+        "stereo_calibrator"
+      ]
+    },
+    "DiagnosticSummary!calcams": {
+      "topicToRender": "/diagnostics",
+      "pinnedIds": [],
+      "hardwareIdFilter": "",
+      "sortByLevel": true
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {
+    "speed": 1
+  },
+  "layout": {
+    "first": "Image!calpreview",
+    "second": {
+      "first": "CallService!calsolve",
+      "second": {
+        "first": "RosOut!callog",
+        "second": "DiagnosticSummary!calcams",
+        "direction": "column",
+        "splitPercentage": 65
+      },
+      "direction": "column",
+      "splitPercentage": 18
+    },
+    "direction": "row",
+    "splitPercentage": 72
+  }
+}
