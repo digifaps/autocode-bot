@@ -66,14 +66,19 @@ def canonical_order(corners, cols, rows):
     return c.reshape(-1, 1, 2).astype(np.float32)
 
 
-def match_pair(lc, rc, max_row_diff=40.0):
-    """Return right corners ordered like the left ones, or None. With side-by-side cameras a
-    corner sits on roughly the same row in both views and further left in the right view."""
+def match_pair(lc, rc, height=720, max_row_spread=15.0):
+    """Return right corners ordered like the left ones, or None. With side-by-side cameras every
+    corner is shifted by about the same number of rows between the views (not necessarily zero:
+    on this robot the right sensor sits ~54 px lower, which the calibration corrects) and lies
+    further left in the right view. So pick the ordering whose row shift is consistent."""
+    best, best_spread = None, None
     for cand in (rc, rc[::-1].copy()):
         d = lc.reshape(-1, 2) - cand.reshape(-1, 2)
-        if np.abs(d[:, 1]).mean() < max_row_diff and d[:, 0].min() > -5.0:
-            return cand
-    return None
+        spread = float(np.std(d[:, 1]))
+        if (spread < max_row_spread and abs(float(np.mean(d[:, 1]))) < 0.2 * height
+                and d[:, 0].min() > -5.0 and (best is None or spread < best_spread)):
+            best, best_spread = cand, spread
+    return best
 
 
 def board_params(corners, cols, rows, width, height):
@@ -310,7 +315,7 @@ def run_node():
             lc = find_corners(gl, self.cols, self.rows)
             rc = find_corners(gr, self.cols, self.rows) if lc is not None else None
             if rc is not None:
-                rc = match_pair(lc, rc)
+                rc = match_pair(lc, rc, gl.shape[0])
                 if rc is None:
                     self.status = "left/right corners do not match (board too oblique?)"
             if lc is None or rc is None:
