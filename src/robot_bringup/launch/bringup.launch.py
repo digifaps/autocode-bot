@@ -74,6 +74,11 @@ def generate_launch_description():
         parameters=[{"slam_params": os.path.join(bringup_share, "config", "slam_toolbox_params.yaml")}],
         output="screen", sigterm_timeout="15", **RESPAWN,
     )
+    # Stereo depth on the GPU; idle (no camera subscriptions) until something subscribes to its outputs
+    stereo_depth = Node(
+        package="stereo_vision", executable="stereo_depth_node", name="stereo_depth",
+        output="screen", **RESPAWN,
+    )
 
     return LaunchDescription([
         DeclareLaunchArgument("foxglove_port", default_value="8765", description="foxglove_bridge port"),
@@ -84,4 +89,5 @@ def generate_launch_description():
         foxglove_bridge,
         health,
         mapping_manager,
+        stereo_depth,
     ])
