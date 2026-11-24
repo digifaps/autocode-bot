@@ -24,6 +24,8 @@ find_package(ament_index_cpp REQUIRED)
 find_package(image_geometry REQUIRED)
 # OpenCV 4.10 with CUDA (built into /usr/local on the Jetson); the stereo_depth node needs its CUDA modules
 find_package(OpenCV 4.10 REQUIRED COMPONENTS core imgproc calib3d imgcodecs cudaimgproc cudawarping cudastereo)
+# CUDA runtime: stereo_depth sets blocking sync on the device (sleep instead of spin while waiting for the GPU)
+find_package(CUDAToolkit REQUIRED)
 # Camera capture + hardware JPEG (nvarguscamerasrc / nvjpegenc come with L4T)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GST REQUIRED IMPORTED_TARGET gstreamer-1.0 gstreamer-app-1.0 gstreamer-video-1.0)
@@ -61,6 +63,7 @@ ament_target_dependencies(stereo_depth_node
 )
 target_link_libraries(stereo_depth_node
   ${OpenCV_LIBS}
+  CUDA::cudart
 )
 
 # Install targets

@@ -11,9 +11,11 @@
  *   stereo/points                    sensor_msgs/PointCloud2 xyz + rgb in the left camera's optical frame
  *   /diagnostics                     "Stereo depth" status once per second
  *
- * Pipeline per pair: upload -> grey -> rectify + downscale in one remap -> StereoSGM -> speckle filter ->
- * depth. Left and right sensors are not synchronized; pairs whose stamps differ by more than `max_pair_dt`
- * are skipped.
+ * Pipeline per pair: upload -> grey -> rectify + downscale in one remap -> StereoSGM (GPU, one CUDA stream,
+ * results downloaded into pinned memory) -> speckle filter (CPU) -> depth and preview colours through lookup
+ * tables indexed by the fixed-point disparity. The CUDA context uses blocking sync, so the thread sleeps
+ * instead of spinning while it waits for the GPU. Left and right sensors are not synchronized; pairs whose
+ * stamps differ by more than `max_pair_dt` are skipped.
  */
 
 #include <algorithm>
@@ -30,6 +32,8 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
+
+#include <cuda_runtime_api.h>
 
 #include <opencv2/calib3d.hpp>
 #include <opencv2/core.hpp>
@@ -139,6 +143,13 @@ private:
   bool init_gpu()
   {
     try {
+      // Sleep in cudaStreamSynchronize instead of spinning a CPU core while StereoSGM runs.
+      // Must happen before anything creates the CUDA context.
+      const cudaError_t flag_err = cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
+      if (flag_err != cudaSuccess) {
+        RCLCPP_WARN(get_logger(), "could not enable CUDA blocking sync (%s); GPU waits will spin",
+                    cudaGetErrorString(flag_err));
+      }
       if (cv::cuda::getCudaEnabledDeviceCount() < 1) {
         gpu_error_ = "no CUDA device (OpenCV built without CUDA?)";
         return false;
@@ -213,11 +224,38 @@ private:
     rect_info_.r = L.r;
     rect_info_.p = {fx_, 0, cx_, 0, 0, fy_, cy_, 0, 0, 0, 1, 0};
 
+    build_luts();
     maps_ready_ = true;
     RCLCPP_INFO(get_logger(), "rectification ready: %dx%d, f=%.1f px, baseline %.1f mm, range %.2f-%.1f m",
                 out_size_.width, out_size_.height, fx_, baseline_ * 1000.0,
                 fx_ * baseline_ / (num_disp_ - 1), max_depth_);
     return true;
+  }
+
+  /// StereoSGM gives integer disparities * 16 in [0, 16 * num_disparities), so depth and preview colour can be
+  /// looked up per disparity value instead of computed per pixel.
+  void build_luts()
+  {
+    const int n = num_disp_ * 16;
+    depth_lut_.assign(n, 0);
+    colour_lut_.assign(n, cv::Vec3b(0, 0, 0));
+    cv::Mat ramp(1, 256, CV_8UC1), turbo;
+    for (int i = 0; i < 256; ++i) {
+      ramp.at<uint8_t>(i) = static_cast<uint8_t>(i);
+    }
+    cv::applyColorMap(ramp, turbo, cv::COLORMAP_TURBO);
+    const double fb16 = fx_ * baseline_ * 16.0;
+    const double lo = min_depth_, hi = preview_max_;
+    for (int d = 1; d < n; ++d) {
+      const double zm = fb16 / d;
+      if (zm < min_depth_ || zm > max_depth_) {
+        continue;
+      }
+      depth_lut_[d] = static_cast<uint16_t>(std::min(zm * 1000.0 + 0.5, 65535.0));
+      // Near = red, far = blue (turbo); 0 stays black for "unknown"
+      const double t = std::clamp((zm - lo) / (hi - lo), 0.0, 1.0);
+      colour_lut_[d] = turbo.at<cv::Vec3b>(static_cast<int>(1 + (1.0 - t) * 254.0));
+    }
   }
 
   // ------------------------------------------------------------------ processing
@@ -233,8 +271,12 @@ private:
       ++skipped_pairs_;
       return;
     }
-    const auto t_now = now();
-    if (last_processed_.nanoseconds() > 0 && (t_now - last_processed_).seconds() < 1.0 / max_rate_) {
+    // Rate cap with 20 % slack: pairs arrive on the camera's 50 ms grid with jitter, so a strict
+    // 1/max_rate test rejects the pair that is a few ms early and the next accepted one is 50 ms late
+    // (10 Hz cap gave ~7.7 Hz).
+    const auto t_now = std::chrono::steady_clock::now();
+    if (processed_once_ &&
+        std::chrono::duration<double>(t_now - last_processed_).count() < 0.8 / max_rate_) {
       return;
     }
     Image::ConstSharedPtr l = left_, r = right_;
@@ -249,6 +291,7 @@ private:
       return;
     }
     last_processed_ = t_now;
+    processed_once_ = true;
     try {
       process(l, r);
       bad_input_.clear();
@@ -266,41 +309,45 @@ private:
 
     cv::Mat lm(l->height, l->width, CV_8UC3, const_cast<uint8_t *>(l->data.data()), l->step);
     cv::Mat rm(r->height, r->width, CV_8UC3, const_cast<uint8_t *>(r->data.data()), r->step);
-    g_lbgr_.upload(lm);
-    g_rbgr_.upload(rm);
-    cv::cuda::cvtColor(g_lbgr_, g_lgrey_, cv::COLOR_BGR2GRAY);
-    cv::cuda::cvtColor(g_rbgr_, g_rgrey_, cv::COLOR_BGR2GRAY);
-    cv::cuda::remap(g_lgrey_, g_lrect_, map_lx_, map_ly_, cv::INTER_LINEAR);
-    cv::cuda::remap(g_rgrey_, g_rrect_, map_rx_, map_ry_, cv::INTER_LINEAR);
-    sgm_->compute(g_lrect_, g_rrect_, g_disp_);
-    g_disp_.download(disp_);  // CV_16S, disparity * 16, <= 0 invalid
+    // Everything on one stream; downloads land in pinned memory and the single wait below sleeps
+    // (blocking sync) until the GPU is done.
+    g_lbgr_.upload(lm, stream_);
+    g_rbgr_.upload(rm, stream_);
+    cv::cuda::cvtColor(g_lbgr_, g_lgrey_, cv::COLOR_BGR2GRAY, 0, stream_);
+    cv::cuda::cvtColor(g_rbgr_, g_rgrey_, cv::COLOR_BGR2GRAY, 0, stream_);
+    cv::cuda::remap(g_lgrey_, g_lrect_, map_lx_, map_ly_, cv::INTER_LINEAR, cv::BORDER_CONSTANT,
+                    cv::Scalar(), stream_);
+    cv::cuda::remap(g_rgrey_, g_rrect_, map_rx_, map_ry_, cv::INTER_LINEAR, cv::BORDER_CONSTANT,
+                    cv::Scalar(), stream_);
+    sgm_->compute(g_lrect_, g_rrect_, g_disp_, stream_);
+    g_disp_.download(h_disp_, stream_);  // CV_16S, disparity * 16, <= 0 invalid
     if (want_points) {
-      cv::cuda::remap(g_lbgr_, g_lcolor_, map_lx_, map_ly_, cv::INTER_LINEAR);
-      g_lcolor_.download(color_);
+      cv::cuda::remap(g_lbgr_, g_lcolor_, map_lx_, map_ly_, cv::INTER_LINEAR, cv::BORDER_CONSTANT,
+                      cv::Scalar(), stream_);
+      g_lcolor_.download(h_color_, stream_);
+    }
+    stream_.waitForCompletion();
+    disp_ = h_disp_.createMatHeader();
+    if (want_points) {
+      color_ = h_color_.createMatHeader();
     }
     if (speckle_size_ > 0) {
       cv::filterSpeckles(disp_, -16, speckle_size_, speckle_range_ * 16);
     }
 
-    // Depth in mm (16UC1): Z = f * B / d
-    const double fb16 = fx_ * baseline_ * 16.0;  // disparity is fixed-point * 16
+    // Depth in mm (16UC1): Z = f * B / d, by lookup (0 = invalid or out of range)
+    const int nlut = static_cast<int>(depth_lut_.size());
+    const uint16_t * lut = depth_lut_.data();
     depth_mm_.create(disp_.size(), CV_16UC1);
     int valid = 0;
     for (int v = 0; v < disp_.rows; ++v) {
       const int16_t * d = disp_.ptr<int16_t>(v);
       uint16_t * z = depth_mm_.ptr<uint16_t>(v);
       for (int u = 0; u < disp_.cols; ++u) {
-        if (d[u] <= 0) {
-          z[u] = 0;
-          continue;
-        }
-        const double zm = fb16 / d[u];
-        if (zm < min_depth_ || zm > max_depth_) {
-          z[u] = 0;
-          continue;
-        }
-        z[u] = static_cast<uint16_t>(zm * 1000.0 + 0.5);
-        ++valid;
+        const int dv = d[u];
+        const uint16_t zv = (dv > 0 && dv < nlut) ? lut[dv] : 0;
+        z[u] = zv;
+        valid += zv != 0;
       }
     }
 
@@ -335,26 +382,20 @@ private:
 
   void publish_preview(const std_msgs::msg::Header & hdr)
   {
-    // Near = red, far = blue (turbo), unknown = black
-    cv::Mat scaled(depth_mm_.size(), CV_8UC1);
-    const double lo = min_depth_ * 1000.0, hi = preview_max_ * 1000.0;
-    for (int v = 0; v < depth_mm_.rows; ++v) {
-      const uint16_t * z = depth_mm_.ptr<uint16_t>(v);
-      uint8_t * s = scaled.ptr<uint8_t>(v);
-      for (int u = 0; u < depth_mm_.cols; ++u) {
-        if (z[u] == 0) {
-          s[u] = 0;
-        } else {
-          const double t = std::clamp((z[u] - lo) / (hi - lo), 0.0, 1.0);
-          s[u] = static_cast<uint8_t>(1 + (1.0 - t) * 254.0);
-        }
+    // Near = red, far = blue (turbo), unknown = black; colour looked up per disparity (see build_luts)
+    preview_bgr_.create(disp_.size(), CV_8UC3);
+    const int nlut = static_cast<int>(colour_lut_.size());
+    const cv::Vec3b * lut = colour_lut_.data();
+    for (int v = 0; v < disp_.rows; ++v) {
+      const int16_t * d = disp_.ptr<int16_t>(v);
+      cv::Vec3b * c = preview_bgr_.ptr<cv::Vec3b>(v);
+      for (int u = 0; u < disp_.cols; ++u) {
+        const int dv = d[u];
+        c[u] = (dv > 0 && dv < nlut) ? lut[dv] : cv::Vec3b(0, 0, 0);
       }
     }
-    cv::Mat colour;
-    cv::applyColorMap(scaled, colour, cv::COLORMAP_TURBO);
-    colour.setTo(cv::Scalar(0, 0, 0), scaled == 0);
     std::vector<uchar> jpg;
-    cv::imencode(".jpg", colour, jpg, {cv::IMWRITE_JPEG_QUALITY, 80});
+    cv::imencode(".jpg", preview_bgr_, jpg, {cv::IMWRITE_JPEG_QUALITY, 80});
     auto msg = std::make_unique<CompressedImage>();
     msg->header = hdr;
     msg->format = "jpeg";
@@ -463,7 +504,11 @@ private:
   CameraInfo rect_info_;
   bool gpu_ok_ = false, maps_ready_ = false, calibrated_ = false;
   std::string gpu_error_, bad_input_;
-  rclcpp::Time last_processed_{0, 0, RCL_ROS_TIME}, active_since_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time active_since_{0, 0, RCL_ROS_TIME};
+  std::chrono::steady_clock::time_point last_processed_;
+  bool processed_once_ = false;
+  std::vector<uint16_t> depth_lut_;     // fixed-point disparity -> depth in mm (0 = invalid)
+  std::vector<cv::Vec3b> colour_lut_;   // fixed-point disparity -> preview colour
   cv::Size out_size_{0, 0};
   double fx_ = 0, fy_ = 0, cx_ = 0, cy_ = 0, baseline_ = 0;
   double r1_[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
@@ -474,7 +519,9 @@ private:
   cv::Ptr<cv::cuda::StereoSGM> sgm_;
   cv::cuda::GpuMat map_lx_, map_ly_, map_rx_, map_ry_;
   cv::cuda::GpuMat g_lbgr_, g_rbgr_, g_lgrey_, g_rgrey_, g_lrect_, g_rrect_, g_disp_, g_lcolor_;
-  cv::Mat disp_, depth_mm_, color_;
+  cv::cuda::Stream stream_;
+  cv::cuda::HostMem h_disp_{cv::cuda::HostMem::PAGE_LOCKED}, h_color_{cv::cuda::HostMem::PAGE_LOCKED};
+  cv::Mat disp_, depth_mm_, color_, preview_bgr_;
 };
 
 int main(int argc, char ** argv)
