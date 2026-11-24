@@ -11,6 +11,8 @@ The robot uses a Waveshare IMX219-83 stereo camera with **wide-angle lenses** (8
 
 ## What you need
 
+- **Ready to print (A4):** [calibration_board_A4_9x6_25mm.pdf](calibration_board_A4_9x6_25mm.pdf): 10×7 squares of 25 mm (9×6 inner corners, the calibrator's defaults), with a 100 mm check line. Print at **100 % / Actual size** in landscape. Other sizes: `scripts/make_calibration_board.py --paper A3 --square 35 -o board.pdf` (it prints the matching calibrator parameters). An A4 board is small for wide-angle lenses: take most samples at 0.3–0.8 m; if the edges stay poor, use a larger board.
+- **Ready to print (A3, recommended):** [calibration_board_A3_9x6_35mm.pdf](calibration_board_A3_9x6_35mm.pdf): 10×7 squares of 35 mm. It reaches the image edges from 0.5–1 m and gave clearly better results here (stereo 0.25 px vs 0.59 px with A4). Printers often scale the page ("fit to printable area"): measure 10 squares across and 7 down after printing and pass the real size, e.g. `square_size:=0.03395` for a 97 % print.
 - A **checkerboard** with an unequal number of inner corners, e.g. **10×7 squares = 9×6 inner corners**. Print it at 100 % scale and glue it to something rigid and flat (foam board, a clipboard, glass). A curled sheet ruins the calibration.
 - Squares of **25–40 mm**, so the board is readable from 0.5 to 2 m.
 - **Measure the square size with a ruler** after printing, in metres. A wrong value scales the baseline (and every depth) by the same factor.
@@ -25,7 +27,7 @@ The robot uses a Waveshare IMX219-83 stereo camera with **wide-angle lenses** (8
    ros2 run stereo_vision stereo_calibrator.py --ros-args \
      -p board_cols:=9 -p board_rows:=6 -p square_size:=0.025
    ```
-3. **In Foxglove**, add an **Image** panel on `/calibration/preview`. It shows both views with the detected corners, the sample count, a status line and four coverage bars (X, Y, Size, Skew). It updates about once a second while no board is visible and a few times a second once it is.
+3. **In Foxglove**, import the layout `config/foxglove/autocode-bot-calibration.json` (large preview, a **Solve calibration** button, the calibrator's log with the report, camera status), or add an **Image** panel on `/calibration/preview`. It shows both views with the detected corners, the sample count, a status line and four coverage bars (X, Y, Size, Skew). It updates about once a second while no board is visible and a few times a second once it is.
 4. **Collect samples.** Hold the board in a pose until the status says `sample N saved` (about one second of holding still), then move to a different pose:
    - all over the image: centre, **all four corners and edges** (most important with wide-angle lenses);
    - near (≈0.4 m, board filling most of the view) and far (≈2 m);
