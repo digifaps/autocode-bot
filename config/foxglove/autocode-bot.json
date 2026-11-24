@@ -40,6 +40,13 @@
         },
         "/odom": {
           "visible": true
+        },
+        "/stereo/points": {
+          "visible": true,
+          "colorMode": "rgb",
+          "colorField": "rgb",
+          "pointSize": 3,
+          "decayTime": 0
         }
       },
       "layers": {
@@ -149,7 +156,12 @@
       "showLegend": true,
       "followingViewWidth": 60
     },
-    "autocode-bot panels.Mapping!mapping": {}
+    "autocode-bot panels.Mapping!mapping": {},
+    "Image!depth": {
+      "imageMode": {
+        "imageTopic": "/stereo/depth_preview/compressed"
+      }
+    }
   },
   "globalVariables": {},
   "userNodes": {},
@@ -165,9 +177,14 @@
     },
     "second": {
       "first": {
-        "first": "Image!left",
-        "second": "Image!right",
-        "direction": "row"
+        "first": {
+          "first": "Image!left",
+          "second": "Image!right",
+          "direction": "row"
+        },
+        "second": "Image!depth",
+        "direction": "row",
+        "splitPercentage": 67
       },
       "second": {
         "first": {

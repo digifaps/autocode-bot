@@ -22,18 +22,13 @@ find_package(camera_calibration_parsers REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(image_geometry REQUIRED)
-find_package(OpenCV REQUIRED)
+# OpenCV 4.10 with CUDA (built into /usr/local on the Jetson); the stereo_depth node needs its CUDA modules
+find_package(OpenCV 4.10 REQUIRED COMPONENTS core imgproc calib3d imgcodecs cudaimgproc cudawarping cudastereo)
+# CUDA runtime: stereo_depth sets blocking sync on the device (sleep instead of spin while waiting for the GPU)
+find_package(CUDAToolkit REQUIRED)
 # Camera capture + hardware JPEG (nvarguscamerasrc / nvjpegenc come with L4T)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GST REQUIRED IMPORTED_TARGET gstreamer-1.0 gstreamer-app-1.0 gstreamer-video-1.0)
-
-# Optional: CUDA support for accelerated stereo matching
-find_package(CUDA QUIET)
-if(CUDA_FOUND)
-  message(STATUS "CUDA found: ${CUDA_VERSION}")
-  add_definitions(-DUSE_CUDA)
-  include_directories(${CUDA_INCLUDE_DIRS})
-endif()
 
 # Include directories
 include_directories(
@@ -57,26 +52,24 @@ target_link_libraries(stereo_camera_node
   PkgConfig::GST
 )
 
-# Depth processor node
-add_executable(depth_processor_node
-  src/depth_processor_node.cpp
+# Stereo depth on the GPU (rectify + StereoSGM): depth image, preview and point cloud
+add_executable(stereo_depth_node
+  src/stereo_depth_node.cpp
 )
-ament_target_dependencies(depth_processor_node
+ament_target_dependencies(stereo_depth_node
   rclcpp
-  std_msgs
   sensor_msgs
-  image_transport
-  cv_bridge
-  image_geometry
+  diagnostic_msgs
 )
-target_link_libraries(depth_processor_node
+target_link_libraries(stereo_depth_node
   ${OpenCV_LIBS}
+  CUDA::cudart
 )
 
 # Install targets
 install(TARGETS
   stereo_camera_node
-  depth_processor_node
+  stereo_depth_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
