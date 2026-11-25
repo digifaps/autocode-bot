@@ -47,6 +47,9 @@
           "colorField": "rgb",
           "pointSize": 3,
           "decayTime": 0
+        },
+        "/detections/markers": {
+          "visible": true
         }
       },
       "layers": {
@@ -61,7 +64,12 @@
     },
     "Image!left": {
       "imageMode": {
-        "imageTopic": "/camera/left/compressed"
+        "imageTopic": "/camera/left/compressed",
+        "annotations": {
+          "/detections/annotations": {
+            "visible": true
+          }
+        }
       }
     },
     "Image!right": {

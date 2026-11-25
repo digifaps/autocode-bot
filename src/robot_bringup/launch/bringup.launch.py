@@ -5,6 +5,8 @@
 - foxglove_bridge on port 8765 (ws://<ip>:8765, also ws://10.42.0.1:8765 on the robot's access point)
 - robot_health: OK/WARN/ERROR per sensor on /diagnostics (Foxglove Diagnostics panels)
 - mapping_manager: /mapping/start, /mapping/stop, /mapping/save (slam_toolbox on demand)
+- stereo_depth: depth image, preview and point cloud on the GPU (idle until subscribed)
+- object_detector: YOLOX on the DLA, boxes + 3D positions (idle until subscribed)
 
 Every node respawns on its own: a missing or failing sensor shows up in Foxglove and never stops
 the rest of the robot.
@@ -80,6 +82,13 @@ def generate_launch_description():
         output="screen", **RESPAWN,
     )
 
+    # Object detection (YOLOX on the DLA); idle until something subscribes to its outputs. Needs its
+    # TensorRT engine: scripts/fetch_detector_models.sh (reported on /diagnostics if missing).
+    object_detector = Node(
+        package="object_detection", executable="object_detector_node", name="object_detector",
+        output="screen", **RESPAWN,
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument("foxglove_port", default_value="8765", description="foxglove_bridge port"),
         sensors,
@@ -90,4 +99,5 @@ def generate_launch_description():
         health,
         mapping_manager,
         stereo_depth,
+        object_detector,
     ])

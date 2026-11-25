@@ -37,7 +37,8 @@ autocode-bot/
 └── src/                    # ROS2 packages
     ├── robot_bringup/      # Launch files (bringup.launch.py runs at boot) and configs
     ├── imu_driver/         # ICM20948 + AK09916 IMU driver (C++)
-    ├── stereo_vision/      # Stereo cameras (hardware JPEG), calibration tool, depth (stub)
+    ├── stereo_vision/      # Stereo cameras (hardware JPEG), calibration tool, GPU stereo depth
+    ├── object_detection/   # YOLOX object/person detection on the DLA, 3D positions from depth
     ├── robot_odometry/     # IMU + laser odometry fusion, scan resampler (C++)
     ├── robot_supervisor/   # Health on /diagnostics, on-demand mapping
     ├── lidar_control/      # Optional LiDAR power switching via GPIO
@@ -58,6 +59,8 @@ git clone https://github.com/ldrobotSensorTeam/ldlidar_stl_ros2.git            #
 git -C ldlidar_stl_ros2 apply ../autocode-bot/scripts/patches/ldlidar_stl_ros2_reconnect.patch
 git clone -b ros2 https://github.com/MAPIRlab/rf2o_laser_odometry.git          # laser odometry
 git clone https://github.com/SteveMacenski/slam_toolbox.git -b humble          # mapping
+git clone --depth 1 -b 4.1.1 https://github.com/ros-perception/vision_msgs.git # detection messages
+touch vision_msgs/vision_msgs_rviz_plugins/COLCON_IGNORE                        # (needs rviz; not used)
 cd ~/ros2_ws && ./src/autocode-bot/scripts/install_foxglove_bridge.sh          # foxglove_bridge (~5 min)
 ```
 
@@ -72,6 +75,12 @@ colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
 Always pass `-DCMAKE_BUILD_TYPE=Release`: colcon's default is an empty build type, which compiles third-party C++ packages without optimization.
+
+Object detection also needs its model, converted to a TensorRT engine for this Jetson (about 1 minute per model on the DLA; files go to `~/.local/share/autocode-bot/models`):
+
+```bash
+~/ros2_ws/src/autocode-bot/scripts/fetch_detector_models.sh yolox_tiny yolox_s
+```
 
 ### 3. Network: Ethernet + the robot's own Wi-Fi
 
@@ -112,6 +121,8 @@ sudo scripts/install_autostart.sh --remove    # no autostart
 | Foxglove | `foxglove_bridge` | WebSocket on port 8765 |
 | Health | `robot_supervisor/health_node`, plus each sensor's own status | `/diagnostics` |
 | Mapping | `robot_supervisor/mapping_manager.py` | services `/mapping/start`, `/mapping/stop`, `/mapping/save` |
+| Stereo depth | `stereo_vision/stereo_depth_node` (GPU, idle until subscribed) | `/stereo/depth`, `/stereo/points`, `/stereo/depth_preview/compressed` |
+| Object detection | `object_detection/object_detector_node` (DLA, idle until subscribed) | `/detections`, `/detections_3d`, `/detections/annotations`, `/detections/markers` |
 
 **Missing sensors don't stop the robot.** Every node respawns on its own, and a missing or failing sensor is reported on `/diagnostics` (shown in Foxglove), e.g. *LiDAR: not connected (/dev/lidar missing)*, *IMU: ICM20948 not found on /dev/i2c-8*, *Camera left: not detected*. The IMU driver retries a missing chip every 2 s; the LiDAR driver is restarted until the USB adapter is back; a camera missing at startup is reported and the other camera keeps running (CSI cameras are only detected when `nvargus-daemon` starts, so reconnecting one needs a restart).
 
@@ -125,14 +136,15 @@ Foxglove → Open connection → **Foxglove WebSocket** → `ws://<robot-ip>:876
 
 - **3D view** following the robot: map, LiDAR scan, robot model, TF, grid
 - **Mapping** panel: Start mapping / Stop mapping / Save map buttons, the mapping status and the reply of the last call (slam_toolbox only runs while mapping). Source: `config/foxglove/extension/` (plain JavaScript, repackage with `python3 config/foxglove/extension/package.py`)
-- both **camera images**, an **odometry** plot (x, y, speed)
+- both **camera images** (the left one with the object detection boxes), the **depth preview**, an **odometry** plot (x, y, speed)
+- in the 3D view also the stereo **point cloud** and the **detected objects** (boxes with labels)
 - **Diagnostics**: OK / WARN / ERROR per sensor, odometry, Jetson (temperature, memory, disk), network (Ethernet, access point clients), mapping
 - **CPU per core** (%), from `/system/cpu_usage` (published by `robot_health`: `data[0..5]` per core, `data[6]` all cores)
 - **Log**: warnings and errors from all nodes
 
 Saved maps go to `~/maps/map_<date_time>.{pgm,yaml}` (map_server format) plus slam_toolbox's pose graph (`.posegraph`, `.data`) to continue mapping later.
 
-**Cameras:** each camera has one GStreamer pipeline split into a hardware JPEG branch (`nvjpegenc`, 10 Hz, quality 85) and a raw bgr8 branch (20 Hz); each branch only runs while its topic has subscribers. `camera_info` comes from `stereo_vision/config/calibration/{left,right}.yaml`; see [docs/calibration/stereo_wide_angle.md](docs/calibration/stereo_wide_angle.md) for the calibration procedure.
+**Cameras:** each camera has one GStreamer pipeline split into a hardware JPEG branch (`nvjpegenc`, 10 Hz, quality 85), a raw bgr8 branch (20 Hz) and a small bgr8 branch (`image_small`, 640x360, 20 Hz, scaled by the VIC hardware, used by object detection so it does not add a second full-size raw stream); each branch only runs while its topic has subscribers. `camera_info` comes from `stereo_vision/config/calibration/{left,right}.yaml`; see [docs/calibration/stereo_wide_angle.md](docs/calibration/stereo_wide_angle.md) for the calibration procedure.
 
 ## Mapping and odometry
 

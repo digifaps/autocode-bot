@@ -6,6 +6,9 @@
  * sensor and publishes, per camera:
  *   camera/<side>/image_raw   sensor_msgs/Image (bgr8)
  *   camera/<side>/compressed  sensor_msgs/CompressedImage (jpeg, hardware nvjpegenc)
+ *   camera/<side>/image_small sensor_msgs/Image (bgr8, downscaled by the VIC, e.g. 640x360, every frame):
+ *                             for consumers like object detection that do not need full resolution, so
+ *                             they do not add another 2.7 MB-per-frame raw stream
  *   camera/<side>/camera_info sensor_msgs/CameraInfo, once per published frame, same stamp
  *   /diagnostics              one status per camera, once per second (frame rate, branches)
  *
@@ -14,7 +17,7 @@
  * node exit so launch can respawn it (Argus cannot recover in-process).
  *
  * Each pipeline splits the NVMM frame with a tee. The raw branch converts to BGR on
- * the CPU; the JPEG branch is encoded by the Jetson's NVJPG engine straight from
+ * the CPU (the small branch scales on the VIC first); the JPEG branch is encoded by the Jetson's NVJPG engine straight from
  * NVMM memory. A branch only runs while its topic has subscribers.
  *
  * This target deliberately does not link OpenCV/cv_bridge: OpenCV's libjpeg in the
@@ -100,11 +103,14 @@ struct Camera
   GstElement * pipeline = nullptr;
   GstElement * raw_valve = nullptr;
   GstElement * jpeg_valve = nullptr;
+  GstElement * small_valve = nullptr;
   bool raw_open = false;
   bool jpeg_open = false;
+  bool small_open = false;
 
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr raw_pub;
   rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr jpeg_pub;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr small_pub;
   rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr info_pub;
   sensor_msgs::msg::CameraInfo info;  // from the calibration file, or uncalibrated (zeros)
 
@@ -123,6 +129,7 @@ struct Camera
   std::atomic<uint64_t> raw_frames{0};
   std::atomic<uint64_t> jpeg_frames{0};
   std::atomic<uint64_t> jpeg_bytes{0};
+  std::atomic<uint64_t> small_frames{0};
   std::atomic<uint64_t> stale_stamps{0};
   std::atomic<int64_t> stamp_age_sum_ns{0};
   std::atomic<uint64_t> stamp_age_count{0};
@@ -147,6 +154,9 @@ public:
     this->declare_parameter("jpeg_quality", 85);
     // Max JPEG frames per second per camera (integer, GStreamer videorate); 0 = every frame
     this->declare_parameter("jpeg_max_rate", 10);
+    // image_small size (VIC-scaled BGR, every frame); keep the sensor's aspect ratio
+    this->declare_parameter("small_width", 640);
+    this->declare_parameter("small_height", 360);
     // camera_info YAML (camera_calibration_parsers format). Empty = <share>/config/calibration/<side>.yaml
     this->declare_parameter("left_calibration_file", "");
     this->declare_parameter("right_calibration_file", "");
@@ -158,6 +168,8 @@ public:
     publish_compressed_ = this->get_parameter("publish_compressed").as_bool();
     jpeg_quality_ = static_cast<int>(this->get_parameter("jpeg_quality").as_int());
     jpeg_max_rate_ = static_cast<int>(this->get_parameter("jpeg_max_rate").as_int());
+    small_width_ = static_cast<int>(this->get_parameter("small_width").as_int());
+    small_height_ = static_cast<int>(this->get_parameter("small_height").as_int());
     if (jpeg_quality_ < 1 || jpeg_quality_ > 100) {
       RCLCPP_WARN(get_logger(), "jpeg_quality %d out of range, using 85", jpeg_quality_);
       jpeg_quality_ = 85;
@@ -207,6 +219,7 @@ public:
       if (cam->pipeline) {
         g_object_set(cam->raw_valve, "drop", FALSE, nullptr);
         g_object_set(cam->jpeg_valve, "drop", FALSE, nullptr);
+        g_object_set(cam->small_valve, "drop", FALSE, nullptr);
         gst_element_send_event(cam->pipeline, gst_event_new_eos());
       }
     }
@@ -244,6 +257,7 @@ public:
     gst_element_set_state(cam.pipeline, GST_STATE_NULL);
     gst_object_unref(cam.raw_valve);
     gst_object_unref(cam.jpeg_valve);
+    gst_object_unref(cam.small_valve);
     gst_object_unref(cam.pipeline);
     cam.pipeline = nullptr;
   }
@@ -321,6 +335,8 @@ private:
       "camera/" + side + "/image_raw", 10);
     cam.jpeg_pub = this->create_publisher<sensor_msgs::msg::CompressedImage>(
       "camera/" + side + "/compressed", 10);
+    cam.small_pub = this->create_publisher<sensor_msgs::msg::Image>(
+      "camera/" + side + "/image_small", 10);
     cam.info_pub = this->create_publisher<sensor_msgs::msg::CameraInfo>(
       "camera/" + side + "/camera_info", 10);
     load_calibration(cam, this->get_parameter(side + "_calibration_file").as_string());
@@ -390,7 +406,13 @@ private:
       // videorate sits before the valve so it sees an unbroken stream of timestamps
       " t. ! " + queue + jpeg_rate + " ! valve name=jpeg_valve drop=true"
       " ! nvjpegenc quality=" + std::to_string(jpeg_quality_) +
-      " ! appsink name=jpeg_sink" + sink_opts;
+      " ! appsink name=jpeg_sink" + sink_opts +
+      // Small: scale in NVMM (VIC), then only a small BGRx->BGR conversion on the CPU
+      " t. ! " + queue + " ! valve name=small_valve drop=true"
+      " ! nvvidconv ! video/x-raw,format=BGRx,width=" + std::to_string(small_width_) +
+      ",height=" + std::to_string(small_height_) +
+      " ! videoconvert ! video/x-raw,format=BGR"
+      " ! appsink name=small_sink" + sink_opts;
   }
 
   bool start_pipeline(Camera & cam)
@@ -412,8 +434,10 @@ private:
     cam.pipeline = pipeline;
     cam.raw_valve = gst_bin_get_by_name(GST_BIN(pipeline), "raw_valve");
     cam.jpeg_valve = gst_bin_get_by_name(GST_BIN(pipeline), "jpeg_valve");
+    cam.small_valve = gst_bin_get_by_name(GST_BIN(pipeline), "small_valve");
     cam.raw_open = false;
     cam.jpeg_open = false;
+    cam.small_open = false;
 
     GstElement * raw_sink = gst_bin_get_by_name(GST_BIN(pipeline), "raw_sink");
     GstElement * jpeg_sink = gst_bin_get_by_name(GST_BIN(pipeline), "jpeg_sink");
@@ -425,6 +449,11 @@ private:
     gst_app_sink_set_callbacks(GST_APP_SINK(jpeg_sink), &jpeg_cb, &cam, nullptr);
     gst_object_unref(raw_sink);
     gst_object_unref(jpeg_sink);
+    GstElement * small_sink = gst_bin_get_by_name(GST_BIN(pipeline), "small_sink");
+    GstAppSinkCallbacks small_cb{};
+    small_cb.new_sample = &StereoCameraNode::on_small_sample;
+    gst_app_sink_set_callbacks(GST_APP_SINK(small_sink), &small_cb, &cam, nullptr);
+    gst_object_unref(small_sink);
 
     // Count frames at the tee so the watchdog works while both branches are closed.
     GstElement * tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
@@ -469,6 +498,7 @@ private:
       gst_element_set_state(cam.pipeline, GST_STATE_NULL);
       gst_object_unref(cam.raw_valve);
       gst_object_unref(cam.jpeg_valve);
+      gst_object_unref(cam.small_valve);
       gst_object_unref(cam.pipeline);
       cam.pipeline = nullptr;
     }
@@ -513,6 +543,7 @@ private:
       st.values.push_back(kv("sensor_fps", b));
       st.values.push_back(kv("raw_branch", cam.raw_open ? "on" : "off (no subscribers)"));
       st.values.push_back(kv("jpeg_branch", cam.jpeg_open ? "on" : "off (no subscribers)"));
+      st.values.push_back(kv("small_branch", cam.small_open ? "on" : "off (no subscribers)"));
       st.values.push_back(kv("calibration", cam.calibrated ? "loaded" : "none (uncalibrated)"));
       arr.status.push_back(st);
     }
@@ -540,6 +571,16 @@ private:
           jpeg ? "on" : "off", jpeg_subs);
       }
       cam.jpeg_open = jpeg;
+    }
+    const size_t small_subs = cam.small_pub->get_subscription_count();
+    const bool small = small_subs > 0;
+    if (force || small != cam.small_open) {
+      g_object_set(cam.small_valve, "drop", small ? FALSE : TRUE, nullptr);
+      if (!force || small) {
+        RCLCPP_INFO(get_logger(), "%s small: %s (%zu subscribers)", cam.side.c_str(),
+          small ? "on" : "off", small_subs);
+      }
+      cam.small_open = small;
     }
   }
 
@@ -616,13 +657,14 @@ private:
           const uint64_t raw = cam.raw_frames.exchange(0);
           const uint64_t jpeg = cam.jpeg_frames.exchange(0);
           const uint64_t bytes = cam.jpeg_bytes.exchange(0);
+          const uint64_t small = cam.small_frames.exchange(0);
           const uint64_t n_age = cam.stamp_age_count.exchange(0);
           const int64_t sum_age = cam.stamp_age_sum_ns.exchange(0);
           const uint64_t stale = cam.stale_stamps.exchange(0);
           RCLCPP_INFO(get_logger(),
-            "%s: sensor %.1f fps, raw %.1f fps, jpeg %.1f fps (%.0f kB avg), "
+            "%s: sensor %.1f fps, raw %.1f fps, small %.1f fps, jpeg %.1f fps (%.0f kB avg), "
             "capture-to-publish %.1f ms, %lu stamps fell back to now()",
-            cam.side.c_str(), sensor / dt, raw / dt, jpeg / dt,
+            cam.side.c_str(), sensor / dt, raw / dt, small / dt, jpeg / dt,
             jpeg ? bytes / 1024.0 / jpeg : 0.0,
             n_age ? sum_age / 1e6 / n_age : 0.0, static_cast<unsigned long>(stale));
         }
@@ -643,6 +685,18 @@ private:
   static GstFlowReturn on_raw_sample(GstAppSink * sink, gpointer user)
   {
     auto * cam = static_cast<Camera *>(user);
+    return publish_bgr(sink, cam, cam->raw_pub, cam->raw_frames);
+  }
+
+  static GstFlowReturn on_small_sample(GstAppSink * sink, gpointer user)
+  {
+    auto * cam = static_cast<Camera *>(user);
+    return publish_bgr(sink, cam, cam->small_pub, cam->small_frames);
+  }
+
+  static GstFlowReturn publish_bgr(GstAppSink * sink, Camera * cam,
+    const rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr & pub, std::atomic<uint64_t> & frames)
+  {
     GstSample * sample = gst_app_sink_pull_sample(sink);
     if (!sample) {
       return GST_FLOW_OK;
@@ -665,8 +719,8 @@ private:
         msg->is_bigendian = 0;
         msg->step = static_cast<uint32_t>(stride);
         msg->data.assign(map.data, map.data + stride * height);
-        publish(cam->raw_pub, std::move(msg));
-        cam->raw_frames++;
+        publish(pub, std::move(msg));
+        frames++;
       }
       gst_buffer_unmap(buf, &map);
     }
@@ -718,6 +772,8 @@ private:
   bool publish_compressed_;
   int jpeg_quality_;
   int jpeg_max_rate_;
+  int small_width_;
+  int small_height_;
   std::vector<std::unique_ptr<Camera>> cams_;
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
