@@ -20,7 +20,7 @@ add_executable(health_node src/health_node.cpp)
 ament_target_dependencies(health_node rclcpp sensor_msgs nav_msgs diagnostic_msgs std_msgs)
 
 install(TARGETS health_node DESTINATION lib/${PROJECT_NAME})
-install(PROGRAMS scripts/mapping_manager.py DESTINATION lib/${PROJECT_NAME})
+install(PROGRAMS scripts/mapping_manager.py scripts/vision_manager.py DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

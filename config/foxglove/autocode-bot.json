@@ -47,6 +47,9 @@
           "colorField": "rgb",
           "pointSize": 3,
           "decayTime": 0
+        },
+        "/detections/markers": {
+          "visible": true
         }
       },
       "layers": {
@@ -61,7 +64,12 @@
     },
     "Image!left": {
       "imageMode": {
-        "imageTopic": "/camera/left/compressed"
+        "imageTopic": "/camera/left/compressed",
+        "annotations": {
+          "/detections/annotations": {
+            "visible": true
+          }
+        }
       }
     },
     "Image!right": {
@@ -161,7 +169,8 @@
       "imageMode": {
         "imageTopic": "/stereo/depth_preview/compressed"
       }
-    }
+    },
+    "autocode-bot panels.Vision!vision": {}
   },
   "globalVariables": {},
   "userNodes": {},
@@ -171,9 +180,14 @@
   "layout": {
     "first": {
       "first": "3D!robot",
-      "second": "autocode-bot panels.Mapping!mapping",
+      "second": {
+        "first": "autocode-bot panels.Mapping!mapping",
+        "second": "autocode-bot panels.Vision!vision",
+        "direction": "row",
+        "splitPercentage": 45
+      },
       "direction": "column",
-      "splitPercentage": 80
+      "splitPercentage": 72
     },
     "second": {
       "first": {
