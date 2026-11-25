@@ -19,6 +19,9 @@ find_package(visualization_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(foxglove_msgs REQUIRED)
 find_package(vision_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 # OpenCV 4.10 with CUDA (built into /usr/local on the Jetson): GPU preprocessing
 find_package(OpenCV 4.10 REQUIRED COMPONENTS core imgproc calib3d cudaarithm cudawarping)
 find_package(CUDAToolkit REQUIRED)
@@ -28,7 +31,8 @@ find_library(NVINFER_LIB nvinfer REQUIRED)
 add_executable(object_detector_node src/object_detector_node.cpp)
 target_include_directories(object_detector_node PRIVATE ${OpenCV_INCLUDE_DIRS})
 ament_target_dependencies(object_detector_node
-  rclcpp rclcpp_lifecycle lifecycle_msgs sensor_msgs visualization_msgs vision_msgs diagnostic_msgs foxglove_msgs)
+  rclcpp rclcpp_lifecycle lifecycle_msgs sensor_msgs visualization_msgs vision_msgs diagnostic_msgs foxglove_msgs
+  tf2 tf2_ros tf2_geometry_msgs)
 target_link_libraries(object_detector_node ${OpenCV_LIBS} CUDA::cudart ${NVINFER_LIB})
 
 install(TARGETS object_detector_node DESTINATION lib/${PROJECT_NAME})

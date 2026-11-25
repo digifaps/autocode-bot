@@ -18,7 +18,7 @@
  *   detections                  vision_msgs/Detection2DArray, boxes in full-size left image pixels (1280x720)
  *   detections_3d               vision_msgs/Detection3DArray, objects with depth, in camera_left_optical
  *   detections/annotations      foxglove_msgs/ImageAnnotations, boxes + labels in full-size left image pixels
- *   detections/markers          visualization_msgs/MarkerArray, 3D positions in camera_left_optical
+ *   detections/markers          visualization_msgs/MarkerArray, upright boxes in `marker_frame` (base_link)
  *   /diagnostics                "Object detection" status once per second
  *
  * Pairing with depth: stereo/depth carries the stamp of the left frame it was computed from. While depth
@@ -54,6 +54,10 @@
 #include <vision_msgs/msg/detection2_d_array.hpp>
 #include <vision_msgs/msg/detection3_d_array.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
+#include <tf2/LinearMath/Transform.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 
 #include <opencv2/calib3d.hpp>
 #include <opencv2/core.hpp>
@@ -155,6 +159,11 @@ public:
     nms_thr_ = declare_parameter("nms_threshold", 0.45);
     max_pair_dt_ = declare_parameter("max_pair_dt", 0.06);         // s, depth <-> left frame fallback
     auto classes = declare_parameter("classes", std::vector<std::string>{});  // empty = all COCO classes
+    // 3D view markers are drawn upright in this frame (the camera is pitched, so boxes in the optical
+    // frame would lean with it); detections_3d stays in the camera's optical frame
+    marker_frame_ = declare_parameter("marker_frame", "base_link");
+    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_, this, true);
     for (int c = 0; c < 80; ++c) {
       class_on_[c] = classes.empty() || std::find(classes.begin(), classes.end(), kCoco[c]) != classes.end();
     }
@@ -677,9 +686,23 @@ private:
     }
 
     if (marker_pub_->get_subscription_count() > 0) {
+      // Camera optical frame -> marker frame (static mount); without TF the boxes stay in the optical frame
+      tf2::Transform to_marker;
+      bool upright = false;
+      try {
+        tf2::fromMsg(tf_buffer_->lookupTransform(marker_frame_, hdr.frame_id, tf2::TimePointZero).transform,
+                     to_marker);
+        upright = true;
+      } catch (const tf2::TransformException & e) {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000, "no TF %s -> %s (%s); markers in the camera frame",
+                             hdr.frame_id.c_str(), marker_frame_.c_str(), e.what());
+      }
       auto ma = std::make_unique<MarkerArray>();
       Marker clear;
       clear.header = hdr;
+      if (upright) {
+        clear.header.frame_id = marker_frame_;
+      }
       clear.action = Marker::DELETEALL;
       ma->markers.push_back(clear);
       int id = 0;
@@ -701,6 +724,16 @@ private:
         m.scale.x = std::max(0.05, d.width_m);
         m.scale.y = std::max(0.05, d.height_m);
         m.scale.z = std::max(0.05, std::min(d.width_m, 0.5));  // depth of the object is unknown
+        if (upright) {  // marker frame (base_link): x forward, y left, z up
+          const tf2::Vector3 p = to_marker * tf2::Vector3(d.x, d.y, d.z);
+          m.header.frame_id = marker_frame_;
+          m.pose.position.x = p.x();
+          m.pose.position.y = p.y();
+          m.pose.position.z = p.z();
+          m.scale.x = std::max(0.05, std::min(d.width_m, 0.5));
+          m.scale.y = std::max(0.05, d.width_m);
+          m.scale.z = std::max(0.05, d.height_m);
+        }
         m.color.r = col.r; m.color.g = col.g; m.color.b = col.b; m.color.a = col.a;
         m.lifetime = rclcpp::Duration::from_seconds(0.5);
         ma->markers.push_back(m);
@@ -708,7 +741,11 @@ private:
         Marker t = m;
         t.ns = "labels";
         t.type = Marker::TEXT_VIEW_FACING;
-        t.pose.position.y -= d.height_m / 2 + 0.1;
+        if (upright) {
+          t.pose.position.z += d.height_m / 2 + 0.1;
+        } else {
+          t.pose.position.y -= d.height_m / 2 + 0.1;
+        }
         t.scale.x = t.scale.y = 0.0;
         t.scale.z = 0.15;
         t.color.r = t.color.g = t.color.b = t.color.a = 1.0;
@@ -762,7 +799,7 @@ private:
   }
 
   // parameters
-  std::string image_topic_, model_, model_dir_;
+  std::string image_topic_, model_, model_dir_, marker_frame_;
   int dla_core_;
   bool use_depth_;
   double max_rate_, score_thr_, nms_thr_, max_pair_dt_;
@@ -777,6 +814,8 @@ private:
   rclcpp::Subscription<Image>::SharedPtr left_sub_, depth_sub_;
   rclcpp::Subscription<CameraInfo>::SharedPtr left_info_sub_, depth_info_sub_;
   rclcpp::TimerBase::SharedPtr diag_timer_;
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
   // state
   std::deque<Image::ConstSharedPtr> cache_;
