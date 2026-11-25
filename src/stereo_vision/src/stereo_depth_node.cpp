@@ -11,6 +11,9 @@
  *   stereo/points                    sensor_msgs/PointCloud2 xyz + rgb in the left camera's optical frame
  *   /diagnostics                     "Stereo depth" status once per second
  *
+ * Parameter `enabled` (settable at runtime, e.g. by vision_manager): false keeps the node idle even when
+ * something subscribes to its outputs.
+ *
  * Pipeline per pair: upload -> grey -> rectify + downscale in one remap -> StereoSGM (GPU, one CUDA stream,
  * results downloaded into pinned memory) -> speckle filter (CPU) -> depth and preview colours through lookup
  * tables indexed by the fixed-point disparity. The CUDA context uses blocking sync, so the thread sleeps
@@ -83,6 +86,18 @@ public:
     speckle_size_ = declare_parameter("speckle_size", 100);    // px; 0 disables the speckle filter
     speckle_range_ = declare_parameter("speckle_range", 2);    // disparity px
     max_pair_dt_ = declare_parameter("max_pair_dt", 0.03);     // s between left and right stamps
+    enabled_ = declare_parameter("enabled", true);              // runtime switch (vision_manager)
+    param_cb_ = add_on_set_parameters_callback([this](const std::vector<rclcpp::Parameter> & ps) {
+      rcl_interfaces::msg::SetParametersResult r;
+      r.successful = true;
+      for (const auto & p : ps) {
+        if (p.get_name() == "enabled") {
+          enabled_ = p.as_bool();
+          RCLCPP_INFO(get_logger(), "depth %s", enabled_ ? "enabled" : "disabled");
+        }
+      }
+      return r;
+    });
 
     if (num_disp_ != 64 && num_disp_ != 128 && num_disp_ != 256) {
       RCLCPP_WARN(get_logger(), "num_disparities must be 64, 128 or 256 for CUDA SGM; using 128");
@@ -105,7 +120,7 @@ private:
   // ------------------------------------------------------------------ subscriptions on demand
   bool wanted() const
   {
-    return depth_pub_->get_subscription_count() + points_pub_->get_subscription_count() +
+    return enabled_ && depth_pub_->get_subscription_count() + points_pub_->get_subscription_count() +
            preview_pub_->get_subscription_count() + info_pub_->get_subscription_count() > 0;
   }
 
@@ -453,6 +468,9 @@ private:
     if (!gpu_error_.empty()) {
       st.level = DiagnosticStatus::ERROR;
       st.message = gpu_error_;
+    } else if (!enabled_) {
+      st.level = DiagnosticStatus::OK;
+      st.message = "off (switched off)";
     } else if (!left_sub_) {
       st.level = DiagnosticStatus::OK;
       st.message = "idle (no subscribers)";
@@ -487,6 +505,8 @@ private:
   // parameters
   int out_width_, num_disp_, p1_, p2_, uniqueness_, point_step_, speckle_size_, speckle_range_;
   double max_rate_, min_depth_, max_depth_, preview_max_, max_pair_dt_;
+  bool enabled_ = true;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_cb_;
 
   // ROS
   rclcpp::Publisher<Image>::SharedPtr depth_pub_;

@@ -123,6 +123,7 @@ sudo scripts/install_autostart.sh --remove    # no autostart
 | Mapping | `robot_supervisor/mapping_manager.py` | services `/mapping/start`, `/mapping/stop`, `/mapping/save` |
 | Stereo depth | `stereo_vision/stereo_depth_node` (GPU, idle until subscribed) | `/stereo/depth`, `/stereo/points`, `/stereo/depth_preview/compressed` |
 | Object detection | `object_detection/object_detector_node` (DLA, idle until subscribed) | `/detections`, `/detections_3d`, `/detections/annotations`, `/detections/markers` |
+| Vision switches | `robot_supervisor/vision_manager.py` | services `/vision/depth/enable`, `/vision/detection/enable`, `/vision/detection/accurate` |
 
 **Missing sensors don't stop the robot.** Every node respawns on its own, and a missing or failing sensor is reported on `/diagnostics` (shown in Foxglove), e.g. *LiDAR: not connected (/dev/lidar missing)*, *IMU: ICM20948 not found on /dev/i2c-8*, *Camera left: not detected*. The IMU driver retries a missing chip every 2 s; the LiDAR driver is restarted until the USB adapter is back; a camera missing at startup is reported and the other camera keeps running (CSI cameras are only detected when `nvargus-daemon` starts, so reconnecting one needs a restart).
 
@@ -132,10 +133,11 @@ sudo scripts/install_autostart.sh --remove    # no autostart
 
 ## Foxglove
 
-Foxglove → Open connection → **Foxglove WebSocket** → `ws://<robot-ip>:8765` (on the robot's Wi-Fi: `ws://10.42.0.1:8765`). Install the extension [`config/foxglove/autocode-bot-panels.foxe`](config/foxglove/autocode-bot-panels.foxe) once (drag it onto the Foxglove window, or Settings → Extensions → **Install local extension**; it provides the Mapping panel; Foxglove names it after the extension displayName "autocode-bot panels", which the layout refers to), then import the layout [`config/foxglove/autocode-bot.json`](config/foxglove/autocode-bot.json) (layout menu → **Import from file…**):
+Foxglove → Open connection → **Foxglove WebSocket** → `ws://<robot-ip>:8765` (on the robot's Wi-Fi: `ws://10.42.0.1:8765`). Install the extension [`config/foxglove/autocode-bot-panels.foxe`](config/foxglove/autocode-bot-panels.foxe) once (drag it onto the Foxglove window, or Settings → Extensions → **Install local extension**; it provides the Mapping and Vision panels; Foxglove names it after the extension displayName "autocode-bot panels", which the layout refers to), then import the layout [`config/foxglove/autocode-bot.json`](config/foxglove/autocode-bot.json) (layout menu → **Import from file…**):
 
 - **3D view** following the robot: map, LiDAR scan, robot model, TF, grid
 - **Mapping** panel: Start mapping / Stop mapping / Save map buttons, the mapping status and the reply of the last call (slam_toolbox only runs while mapping). Source: `config/foxglove/extension/` (plain JavaScript, repackage with `python3 config/foxglove/extension/package.py`)
+- **Vision** panel: switch stereo depth and object detection on / off and pick the detection model (Fast / Accurate), with their live status, GPU load and memory. The choice is saved on the robot (`~/.config/autocode-bot/vision.json`) and applied at boot; "on" means allowed to run, both still idle while nothing in Foxglove (or elsewhere) uses their output. Detection without depth gives boxes without distances
 - both **camera images** (the left one with the object detection boxes), the **depth preview**, an **odometry** plot (x, y, speed)
 - in the 3D view also the stereo **point cloud** and the **detected objects** (boxes with labels)
 - **Diagnostics**: OK / WARN / ERROR per sensor, odometry, Jetson (temperature, memory, disk), network (Ethernet, access point clients), mapping

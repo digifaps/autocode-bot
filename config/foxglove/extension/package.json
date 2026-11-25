@@ -1,11 +1,17 @@
 {
   "name": "panels",
   "displayName": "autocode-bot panels",
-  "description": "Foxglove panels for autocode-bot: Mapping (start / stop / save buttons and mapping status)",
+  "description": "Foxglove panels for autocode-bot: Mapping (start / stop / save buttons and mapping status) and Vision (stereo depth / object detection switches, detection model, GPU load)",
   "publisher": "autocodebot",
   "homepage": "https://github.com/digifaps/autocode-bot",
   "license": "GPL-3.0",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "main": "./dist/extension.js",
-  "keywords": ["ros2", "mapping", "slam_toolbox"]
+  "keywords": [
+    "ros2",
+    "mapping",
+    "slam_toolbox",
+    "vision",
+    "object detection"
+  ]
 }

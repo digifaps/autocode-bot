@@ -7,7 +7,8 @@
  *   activate   -> run (camera subscriptions are still made only while an output has a subscriber)
  *   deactivate -> stop processing and drop the camera subscriptions; the engine stays loaded
  *   cleanup    -> free the engine and its memory
- * With `autostart` (default) the node configures and activates itself at start.
+ * With `autostart` (default) the node configures and activates itself at start. `model` and `dla_core` are
+ * read on every configure, so a supervisor can switch models with cleanup -> set parameters -> configure.
  *
  * Subscribes (while active and wanted):
  *   camera/left/image_small     sensor_msgs/Image bgr8, 640x360 every frame (detection input; the camera
@@ -179,6 +180,8 @@ public:
   // ------------------------------------------------------------------ lifecycle
   CallbackReturn on_configure(const rclcpp_lifecycle::State &) override
   {
+    model_ = get_parameter("model").as_string();
+    dla_core_ = static_cast<int>(get_parameter("dla_core").as_int());
     if (!load_engine()) {
       free_engine();
       return CallbackReturn::FAILURE;
@@ -780,7 +783,7 @@ private:
     } else if (hz == 0) {
       const bool settling = std::chrono::steady_clock::now() - active_since_ < std::chrono::seconds(5);
       st.level = settling ? DiagnosticStatus::OK : DiagnosticStatus::WARN;
-      st.message = "no camera frames";
+      st.message = settling ? "starting..." : "no camera frames";
     } else {
       st.level = DiagnosticStatus::OK;
       char buf[160];

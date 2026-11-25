@@ -7,6 +7,7 @@
 - mapping_manager: /mapping/start, /mapping/stop, /mapping/save (slam_toolbox on demand)
 - stereo_depth: depth image, preview and point cloud on the GPU (idle until subscribed)
 - object_detector: YOLOX on the DLA, boxes + 3D positions (idle until subscribed)
+- vision_manager: /vision/{depth,detection}/enable, /vision/detection/accurate (Foxglove Vision panel)
 
 Every node respawns on its own: a missing or failing sensor shows up in Foxglove and never stops
 the rest of the robot.
@@ -89,6 +90,12 @@ def generate_launch_description():
         output="screen", **RESPAWN,
     )
 
+    # Switches depth / detection on and off and picks the detection model (saved across restarts)
+    vision_manager = Node(
+        package="robot_supervisor", executable="vision_manager.py", name="vision_manager",
+        output="screen", **RESPAWN,
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument("foxglove_port", default_value="8765", description="foxglove_bridge port"),
         sensors,
@@ -100,4 +107,5 @@ def generate_launch_description():
         mapping_manager,
         stereo_depth,
         object_detector,
+        vision_manager,
     ])
