@@ -98,6 +98,14 @@ sudo systemctl stop autocode-bot              # to run things by hand (scripts/s
 sudo scripts/install_autostart.sh --remove    # no autostart
 ```
 
+Optional: run the robot without the desktop (frees ~400 MB of RAM; ssh, Foxglove and the access point are unaffected):
+
+```bash
+sudo scripts/headless.sh            # console at boot, desktop stopped, unused services (Docker, Bluetooth, ModemManager, ...) off
+sudo systemctl start gdm            # desktop when needed, without changing the boot default
+sudo scripts/headless.sh --undo     # desktop at boot again, services back on
+```
+
 ## What runs at boot
 
 `bringup.launch.py` starts:
