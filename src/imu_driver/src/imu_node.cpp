@@ -9,7 +9,11 @@
  *   ICM20948's internal I2C master copies into EXT_SLV_SENS_DATA (magnetometer in continuous
  *   100 Hz mode).
  * - Gyro noise is filtered by the chip's DLPF (gyro_dlpf_mode); the accelerometer gets a light EMA.
- * - Gyro bias is averaged over the first gyro_calibration_time seconds (robot must be still).
+ * - Gyro bias is averaged over the first gyro_calibration_time seconds (robot must be still), then
+ *   tracked while the robot stands still: the bias drifts as the board warms up (seen: 0.3 deg/s
+ *   after 45 min, i.e. the heading turned 19 deg/min). Every gyro_bias_window seconds the window is
+ *   checked for stillness (low gyro and accelerometer spread, mean close to the current bias, so a
+ *   steady turn is never taken for bias) and the bias moves a fraction towards the window mean.
  * - A missing or failing chip never stops the node: it retries every 2 s and reports ERROR on
  *   /diagnostics, so Foxglove shows the problem. A chip reset behind our back (another process)
  *   is detected once per second and the chip is reconfigured.
@@ -184,6 +188,15 @@ public:
     calib_time_ = declare_parameter<double>("gyro_calibration_time", 5.0);
     calib_max_std_ = declare_parameter<double>("gyro_calibration_max_std", 2.0);    // deg/s
     calib_max_bias_ = declare_parameter<double>("gyro_calibration_max_bias", 5.0);  // deg/s
+    // Bias tracking while still. Measured standing still (DLPF 4, 2 s windows): gyro std
+    // 0.06-0.10 deg/s per axis, window means within +-0.02 deg/s of each other.
+    track_bias_ = declare_parameter<bool>("gyro_bias_tracking", true);
+    track_window_ = declare_parameter<double>("gyro_bias_window", 2.0);            // s
+    still_gyro_std_ = declare_parameter<double>("gyro_still_max_std", 0.2);        // deg/s
+    still_accel_std_ = declare_parameter<double>("accel_still_max_std", 0.01);     // g
+    // A window whose mean is further than this from the current bias is motion, not drift
+    track_max_step_ = declare_parameter<double>("gyro_bias_max_step", 0.5);        // deg/s
+    track_gain_ = declare_parameter<double>("gyro_bias_gain", 0.2);  // per accepted window
     log_interval_ = static_cast<int>(declare_parameter<int>("log_interval", 0));
     if (!(alpha_ > 0.0 && alpha_ <= 1.0)) {
       RCLCPP_WARN(get_logger(), "lowpass_alpha=%.3f out of range (0, 1]; using 1.0 (off)", alpha_);
@@ -336,6 +349,7 @@ private:
   {
     std::array<double, 3> accel;  // g
     std::array<double, 3> gyro;   // deg/s
+    double temp;                  // deg C
     uint8_t st1;
     std::array<int16_t, 3> mag;
     uint8_t st2;
@@ -351,6 +365,7 @@ private:
       s.gyro[i] = be16(d + 6 + 2 * i) * gyro_scale_;
       s.mag[i] = le16(d + 15 + 2 * i);
     }
+    s.temp = be16(d + 12) / 333.87 + 21.0;  // datasheet: room temp offset 21 C, 333.87 LSB/C
     s.st1 = d[14];
     s.st2 = d[22];
     return s;
@@ -446,7 +461,60 @@ private:
       }
       return;
     }
+    temp_ = s.temp;
     publish_sample(s, now);
+    if (track_bias_) {
+      track_bias(s);
+    }
+  }
+
+  /// Running per-axis sums over one window; on a still window, nudge the bias towards its mean.
+  void track_bias(const Sample & s)
+  {
+    for (int i = 0; i < 3; ++i) {
+      win_g_[i] += s.gyro[i];
+      win_g2_[i] += s.gyro[i] * s.gyro[i];
+      win_a_[i] += s.accel[i];
+      win_a2_[i] += s.accel[i] * s.accel[i];
+    }
+    if (++win_n_ < std::max(10, static_cast<int>(track_window_ * rate_))) {
+      return;
+    }
+    const double n = win_n_;
+    std::array<double, 3> mean{};
+    double g_sd = 0, a_sd = 0, step = 0;
+    for (int i = 0; i < 3; ++i) {
+      mean[i] = win_g_[i] / n;
+      g_sd = std::max(g_sd, std::sqrt(std::max(0.0, win_g2_[i] / n - mean[i] * mean[i])));
+      const double am = win_a_[i] / n;
+      a_sd = std::max(a_sd, std::sqrt(std::max(0.0, win_a2_[i] / n - am * am)));
+      step = std::max(step, std::abs(mean[i] - bias_[i] / DEG2RAD));
+    }
+    win_n_ = 0;
+    win_g_ = win_g2_ = win_a_ = win_a2_ = {0, 0, 0};
+    ++track_windows_;
+    if (g_sd > still_gyro_std_ || a_sd > still_accel_std_) {
+      return;  // moving
+    }
+    // Without a valid startup calibration the bias is still 0: the first still window within the
+    // calibration limit sets it outright (a fractional step would leave it outside the gate).
+    const bool seeded = calib_ok_ || track_accepted_ > 0;
+    if (step > (seeded ? track_max_step_ : calib_max_bias_)) {
+      ++off_gate_;  // still, but the mean is far from the bias: a slow steady turn, or lost track
+      return;
+    }
+    off_gate_ = 0;
+    for (int i = 0; i < 3; ++i) {
+      bias_[i] = seeded ? bias_[i] + track_gain_ * (mean[i] * DEG2RAD - bias_[i]) : mean[i] * DEG2RAD;
+    }
+    ++track_accepted_;
+    char b[160];
+    std::snprintf(b, sizeof(b), "x=%.3f y=%.3f z=%.3f deg/s (tracked, %.1f C)",
+      bias_[0] / DEG2RAD, bias_[1] / DEG2RAD, bias_[2] / DEG2RAD, temp_);
+    calib_status_ = b;
+    if (track_accepted_ == 1 || track_accepted_ % 150 == 0) {  // first, then every ~5 min still
+      RCLCPP_INFO(get_logger(), "Gyro bias %s", b);
+    }
   }
 
   void finish_calibration()
@@ -613,9 +681,12 @@ private:
       st.level = DS::WARN;
       std::snprintf(b, sizeof(b), "magnetometer at %.0f Hz (expected ~80-100)", mag_hz);
       st.message = b;
-    } else if (!calib_ok_ && calib_time_ > 0) {
+    } else if (!calib_ok_ && calib_time_ > 0 && !track_accepted_) {
       st.level = DS::WARN;
       st.message = "gyro bias not calibrated (robot moved at startup); heading will drift";
+    } else if (off_gate_ >= 30) {  // 60 s of steady readings that do not match the bias
+      st.level = DS::WARN;
+      st.message = "gyro bias out of tracking range; heading may drift (restart the IMU while still)";
     } else {
       st.level = DS::OK;
       std::snprintf(b, sizeof(b), "%.0f Hz, magnetometer %.0f Hz", hz, mag_hz);
@@ -632,6 +703,15 @@ private:
     std::snprintf(b, sizeof(b), "%.1f", mag_hz);
     st.values.push_back(kv("mag_rate_hz", b));
     st.values.push_back(kv("gyro_bias", calib_status_.empty() ? "-" : calib_status_));
+    if (track_bias_) {
+      std::snprintf(b, sizeof(b), "%lu of %lu windows still",
+        static_cast<unsigned long>(track_accepted_), static_cast<unsigned long>(track_windows_));
+      st.values.push_back(kv("bias_tracking", b));
+    }
+    if (state_ == State::Running) {
+      std::snprintf(b, sizeof(b), "%.1f", temp_);
+      st.values.push_back(kv("temperature_c", b));
+    }
     st.values.push_back(kv("read_errors", std::to_string(errors_total_)));
     st.values.push_back(kv("reinits", std::to_string(reinits_)));
     diagnostic_msgs::msg::DiagnosticArray arr;
@@ -651,6 +731,12 @@ private:
   double calib_max_std_;
   double calib_max_bias_;
   int log_interval_;
+  bool track_bias_;
+  double track_window_;
+  double still_gyro_std_;
+  double still_accel_std_;
+  double track_max_step_;
+  double track_gain_;
 
   // device
   I2cDevice dev_;
@@ -671,7 +757,14 @@ private:
   bool bias_done_ = false;
   bool calib_ok_ = false;
   std::string calib_status_;
-  std::array<double, 3> bias_{0, 0, 0};
+  std::array<double, 3> bias_{0, 0, 0};  // rad/s
+  // bias tracking window sums (deg/s, g)
+  std::array<double, 3> win_g_{0, 0, 0}, win_g2_{0, 0, 0}, win_a_{0, 0, 0}, win_a2_{0, 0, 0};
+  int win_n_ = 0;
+  uint64_t track_windows_ = 0;
+  uint64_t track_accepted_ = 0;
+  int off_gate_ = 0;  // consecutive still windows rejected by the bias step gate
+  double temp_ = 0.0;
   std::array<double, 3> accel_filtered_{0, 0, 0};
   bool accel_filtered_valid_ = false;
   std::array<int16_t, 3> last_mag_{0, 0, 0};
