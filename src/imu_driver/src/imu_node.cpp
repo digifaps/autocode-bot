@@ -493,13 +493,19 @@ private:
     win_n_ = 0;
     win_g_ = win_g2_ = win_a_ = win_a2_ = {0, 0, 0};
     ++track_windows_;
-    // Without a startup calibration the bias is still 0: allow up to the calibration limit once.
-    const double max_step = track_accepted_ || calib_ok_ ? track_max_step_ : calib_max_bias_;
-    if (g_sd > still_gyro_std_ || a_sd > still_accel_std_ || step > max_step) {
-      return;  // moving (or a steady turn)
+    if (g_sd > still_gyro_std_ || a_sd > still_accel_std_) {
+      return;  // moving
     }
+    // Without a valid startup calibration the bias is still 0: the first still window within the
+    // calibration limit sets it outright (a fractional step would leave it outside the gate).
+    const bool seeded = calib_ok_ || track_accepted_ > 0;
+    if (step > (seeded ? track_max_step_ : calib_max_bias_)) {
+      ++off_gate_;  // still, but the mean is far from the bias: a slow steady turn, or lost track
+      return;
+    }
+    off_gate_ = 0;
     for (int i = 0; i < 3; ++i) {
-      bias_[i] += track_gain_ * (mean[i] * DEG2RAD - bias_[i]);
+      bias_[i] = seeded ? bias_[i] + track_gain_ * (mean[i] * DEG2RAD - bias_[i]) : mean[i] * DEG2RAD;
     }
     ++track_accepted_;
     char b[160];
@@ -678,6 +684,9 @@ private:
     } else if (!calib_ok_ && calib_time_ > 0 && !track_accepted_) {
       st.level = DS::WARN;
       st.message = "gyro bias not calibrated (robot moved at startup); heading will drift";
+    } else if (off_gate_ >= 30) {  // 60 s of steady readings that do not match the bias
+      st.level = DS::WARN;
+      st.message = "gyro bias out of tracking range; heading may drift (restart the IMU while still)";
     } else {
       st.level = DS::OK;
       std::snprintf(b, sizeof(b), "%.0f Hz, magnetometer %.0f Hz", hz, mag_hz);
@@ -754,6 +763,7 @@ private:
   int win_n_ = 0;
   uint64_t track_windows_ = 0;
   uint64_t track_accepted_ = 0;
+  int off_gate_ = 0;  // consecutive still windows rejected by the bias step gate
   double temp_ = 0.0;
   std::array<double, 3> accel_filtered_{0, 0, 0};
   bool accel_filtered_valid_ = false;
