@@ -139,6 +139,8 @@ sudo scripts/headless.sh --undo     # desktop at boot again, services back on
 
 **Keep the robot still for the first 5 seconds** after start: the IMU measures its gyro bias and the gravity direction then.
 
+The gyro bias drifts as the board warms up (once 0.3 deg/s after 45 minutes, so the heading in Foxglove turned ~19 deg/min while the robot stood still). `imu_node` therefore keeps updating the bias whenever the robot stands still for 2 s (low gyro and accelerometer spread, and an average within 0.5 deg/s of the current bias, so a turn is not mistaken for drift). Diagnostics show the current bias, how many 2 s windows counted as still, and the IMU temperature; `gyro_bias_tracking:=false` turns it off.
+
 ## Foxglove
 
 Foxglove → Open connection → **Foxglove WebSocket** → `ws://<robot-ip>:8765` (on the robot's Wi-Fi: `ws://10.42.0.1:8765`). Install the extension [`config/foxglove/autocode-bot-panels.foxe`](config/foxglove/autocode-bot-panels.foxe) once (drag it onto the Foxglove window, or Settings → Extensions → **Install local extension**; it provides the Mapping and Vision panels; Foxglove names it after the extension displayName "autocode-bot panels", which the layout refers to), then import the layout [`config/foxglove/autocode-bot.json`](config/foxglove/autocode-bot.json) (layout menu → **Import from file…**):
